@@ -1,43 +1,39 @@
 export const runtime = 'edge';
 
-// ENV required on Vercel:
-// OPENAI_API_KEY=sk-...,
-// OPENAI_VECTOR_STORE_ID=vs_...,
-// ALLOWED_ORIGINS=https://www.sidthah.com,https://editor.wix.com,https://manage.wix.com
-
-function getAllowedOrigin(origin: string | null): string | null {
-  const list = (process.env.ALLOWED_ORIGINS || '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
-  return origin && list.includes(origin) ? origin : null;
+function allowedOrigin(origin: string | null): string | null {
+  if (!origin) return null;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== 'https:') return null;
+    // allow both apex and www
+    if (u.hostname === 'www.sidthah.com' || u.hostname === 'sidthah.com') return origin;
+    return null;
+  } catch { return null; }
 }
 
-function baseCorsHeaders(req: Request, allow: string | null) {
-  const reqMethod = req.headers.get('access-control-request-method') || 'POST';
-  const reqHeaders = req.headers.get('access-control-request-headers') || 'Content-Type, Authorization';
+function corsHeaders(req: Request, allow: string | null) {
+  const reqHeaders = req.headers.get('access-control-request-headers') || 'Content-Type';
   const h: Record<string, string> = {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': reqHeaders,
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
   if (allow) h['Access-Control-Allow-Origin'] = allow;
   return h;
 }
 
 export async function OPTIONS(req: Request) {
-  const allow = getAllowedOrigin(req.headers.get('origin'));
-  const headers = baseCorsHeaders(req, allow);
+  const allow = allowedOrigin(req.headers.get('origin'));
+  const headers = corsHeaders(req, allow);
   return new Response(null, { status: 204, headers });
 }
 
 export async function POST(req: Request) {
   const origin = req.headers.get('origin');
-  const allow = getAllowedOrigin(origin);
-  const headers = baseCorsHeaders(req, allow);
-
+  const allow = allowedOrigin(origin);
+  const headers = corsHeaders(req, allow);
   if (!allow) {
     return new Response(JSON.stringify({ error: 'Forbidden origin' }), { status: 403, headers });
   }
@@ -72,10 +68,7 @@ export async function POST(req: Request) {
 
     const r = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
 
