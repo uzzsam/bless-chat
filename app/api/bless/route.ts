@@ -1,27 +1,46 @@
 export const runtime = 'edge';
 
-function cors(origin: string | null, allowed: string) {
-  const ok = origin && origin === allowed;
-  return {
-    ok,
-    headers: {
-      'Access-Control-Allow-Origin': ok ? allowed : 'https://example.invalid',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Vary': 'Origin',
-    }
+// ENV required on Vercel:
+// OPENAI_API_KEY=sk-...,
+// OPENAI_VECTOR_STORE_ID=vs_...,
+// ALLOWED_ORIGINS=https://www.sidthah.com,https://editor.wix.com,https://manage.wix.com
+
+function getAllowedOrigin(origin: string | null): string | null {
+  const list = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  return origin && list.includes(origin) ? origin : null;
+}
+
+function baseCorsHeaders(req: Request, allow: string | null) {
+  const reqMethod = req.headers.get('access-control-request-method') || 'POST';
+  const reqHeaders = req.headers.get('access-control-request-headers') || 'Content-Type, Authorization';
+  const h: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': reqHeaders,
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
+    'Content-Type': 'application/json'
   };
+  if (allow) h['Access-Control-Allow-Origin'] = allow;
+  return h;
 }
 
 export async function OPTIONS(req: Request) {
-  const { headers } = cors(req.headers.get('origin'), process.env.ALLOWED_ORIGIN!);
+  const allow = getAllowedOrigin(req.headers.get('origin'));
+  const headers = baseCorsHeaders(req, allow);
   return new Response(null, { status: 204, headers });
 }
 
 export async function POST(req: Request) {
   const origin = req.headers.get('origin');
-  const { ok, headers } = cors(origin, process.env.ALLOWED_ORIGIN!);
-  if (!ok) return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers });
+  const allow = getAllowedOrigin(origin);
+  const headers = baseCorsHeaders(req, allow);
+
+  if (!allow) {
+    return new Response(JSON.stringify({ error: 'Forbidden origin' }), { status: 403, headers });
+  }
 
   try {
     const { recipient } = await req.json();
@@ -37,7 +56,7 @@ export async function POST(req: Request) {
 
     const system =
       "Generate exactly four short lines called a 'blessing'. " +
-      "Warm, secular, grounded. Personalise to the named recipient. " +
+      "Warm, secular, grounded; personalise to the named recipient. " +
       "Use retrieved knowledge when useful. Output only the four lines.";
 
     const body = {
@@ -53,7 +72,10 @@ export async function POST(req: Request) {
 
     const r = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(body)
     });
 
