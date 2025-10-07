@@ -1,7 +1,7 @@
 // Wix Frontend Code for Blessing Chat
 // Place this in your Wix page code
 
-import wixWindow from 'wix-window';
+import wixStorage from 'wix-storage';
 
 let messages = []; // Conversation history
 let isProcessing = false;
@@ -142,7 +142,10 @@ function showBlessing(blessingText) {
   $w('#sendButton').hide();
 
   // Store blessing for order personalization
-  wixWindow.setCustomParameter('blessing', blessingLines);
+  wixStorage.session.setItem('blessing', blessingLines);
+
+  // Also store in local storage for persistence
+  wixStorage.local.setItem('lastBlessing', blessingLines);
 }
 
 // Repeater item setup

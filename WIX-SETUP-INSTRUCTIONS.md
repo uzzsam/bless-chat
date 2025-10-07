@@ -59,15 +59,38 @@ Copy the code from `wix-chat-frontend.js` into your Wix page's code panel.
 
 ## Integration with Wix Stores
 
-The blessing is stored via `wixWindow.setCustomParameter('blessing', text)` and can be accessed in your order processing:
+The blessing is stored in session storage and can be accessed in your checkout or order pages:
 
 ```javascript
-import wixWindow from 'wix-window';
+import wixStorage from 'wix-storage';
 
-// Retrieve blessing
-const blessing = wixWindow.getCustomParameter('blessing');
+// Retrieve blessing from session
+const blessing = wixStorage.session.getItem('blessing');
 
-// Add to order customization field
+// Or from local storage
+const lastBlessing = wixStorage.local.getItem('lastBlessing');
+
+// Add to order customization field or product options
+```
+
+To pass the blessing to the cart, you can add it as a product option when adding to cart:
+
+```javascript
+import wixStorage from 'wix-storage';
+import { cart } from 'wix-stores';
+
+const blessing = wixStorage.session.getItem('blessing');
+
+// Add product with custom text field
+await cart.addProducts([{
+  productId: 'YOUR_PRODUCT_ID',
+  quantity: 1,
+  options: {
+    customTextFields: {
+      'Blessing': blessing
+    }
+  }
+}]);
 ```
 
 ## Testing
