@@ -46,25 +46,30 @@ export async function POST(req: Request) {
 
     if (userMessageCount === 0) {
       // Initial greeting
-      systemPrompt = `You are a warm, thoughtful guide helping someone create a personalized blessing.
-Use the knowledge from the vector store to inform your welcoming message.
-Greet the user warmly and ask who they would like the blessing for. Keep it brief and friendly (2-3 sentences).`;
-    } else if (userMessageCount <= 4) {
-      // Ask follow-up questions (3-4 questions total)
-      systemPrompt = `You are gathering information to create a personalized blessing.
-You have asked ${userMessageCount} question(s) so far. Ask ONE thoughtful follow-up question to understand more about the person receiving the blessing.
-Focus on: their personality, interests, current life situation, or what makes them special.
-Keep it conversational and warm. Use knowledge from the vector store when relevant.
-${userMessageCount === 4 ? 'This should be your FINAL question before creating the blessing.' : ''}`;
+      systemPrompt = `You are Sidthah's blessing guide. Use Sidthah's philosophy and wisdom from your knowledge base.
+Greet the user warmly using Sidthah's voice and ask who they would like the blessing for. Keep it brief (2-3 sentences).`;
+    } else if (userMessageCount <= 2) {
+      // Ask follow-up questions (only 2 questions total)
+      systemPrompt = `You are gathering information to create a personalized blessing using Sidthah's wisdom.
+You have asked ${userMessageCount} question(s) so far. Ask ONE thoughtful follow-up question to understand the person receiving the blessing.
+Focus on: their current journey, what they need, or what makes them special.
+Use Sidthah's philosophy from your knowledge base to frame the question warmly.
+${userMessageCount === 2 ? 'This is your FINAL question before creating the blessing.' : ''}`;
     } else {
       // Generate the blessing
-      systemPrompt = `Based on the conversation, generate exactly four short lines called a 'blessing'.
-Make it warm, secular, grounded, and deeply personalized to what you've learned.
-Use retrieved knowledge when useful.
-Start with a brief thank you (one sentence), then output ONLY the four blessing lines, each on its own line.`;
+      systemPrompt = `Based on the conversation, you will now create a blessing using Sidthah's wisdom and philosophy from your knowledge base.
+
+IMPORTANT FORMAT:
+1. First, write a brief conversational thank you message (1-2 sentences) acknowledging what you learned.
+2. Then write: "Here is your blessing:"
+3. Then output EXACTLY FOUR blessing lines, each on its own line, using Sidthah's style and wisdom.
+
+The blessing should be warm, secular, grounded, and deeply personalized. Infuse it with Sidthah's philosophy and knowledge.`;
       done = true;
     }
 
+    // For now, use Chat Completions API with enhanced instructions
+    // Note: Vector store integration requires Assistant API or preprocessing
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -78,7 +83,7 @@ Start with a brief thank you (one sentence), then output ONLY the four blessing 
           ...messages
         ],
         temperature: 0.8,
-        max_tokens: 250,
+        max_tokens: 300,
       })
     });
 
