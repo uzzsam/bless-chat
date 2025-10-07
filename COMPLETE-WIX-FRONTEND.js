@@ -2,6 +2,10 @@
 // COMPLETE WIX FRONTEND CODE
 // Copy and paste this entire code into your Wix page
 // ========================================
+//
+// IMPORTANT: In Wix Editor, set #userBubble to "Hidden on load"
+// (or collapsed) in the repeater item settings
+// ========================================
 
 import wixStorage from 'wix-storage';
 
@@ -122,10 +126,7 @@ function addMessage(sender, text) {
 
   $w('#chatRepeater').data = currentData;
 
-  // Scroll to bottom of chat
-  setTimeout(() => {
-    $w('#chatRepeater').scrollTo();
-  }, 100);
+  // Don't auto-scroll - let user scroll themselves
 }
 
 function showBlessing(fullMessage) {
@@ -153,10 +154,7 @@ function showBlessing(fullMessage) {
   $w('#userInput').collapse();
   $w('#sendButton').collapse();
 
-  // Scroll to blessing container
-  setTimeout(() => {
-    $w('#blessingContainer').scrollTo();
-  }, 300);
+  // Don't auto-scroll - let user discover the blessing
 
   // Store blessing for order personalization
   wixStorage.session.setItem('blessing', blessingLines);
