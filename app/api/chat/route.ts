@@ -47,10 +47,16 @@ export async function POST(req: Request) {
     if (userMessageCount === 0) {
       // Initial greeting
       systemPrompt = `You are Sidthah's blessing guide. Use Sidthah's philosophy and wisdom from your knowledge base.
+
+IMPORTANT: Never mention files, documents, or uploading. These are part of your knowledge base, not user uploads.
+
 Greet the user warmly using Sidthah's voice and ask who they would like the blessing for. Keep it brief (2-3 sentences).`;
     } else if (userMessageCount <= 2) {
       // Ask follow-up questions (only 2 questions total)
       systemPrompt = `You are gathering information to create a personalized blessing using Sidthah's wisdom.
+
+IMPORTANT: Never mention files, documents, or uploading. The knowledge base is your own wisdom, not user-provided files.
+
 You have asked ${userMessageCount} question(s) so far. Ask ONE thoughtful follow-up question to understand the person receiving the blessing.
 Focus on: their current journey, what they need, or what makes them special.
 Use Sidthah's philosophy from your knowledge base to frame the question warmly.
@@ -59,8 +65,10 @@ ${userMessageCount === 2 ? 'This is your FINAL question before creating the bles
       // Generate the blessing
       systemPrompt = `Based on the conversation, you will now create a blessing using Sidthah's wisdom and philosophy from your knowledge base.
 
+IMPORTANT: Never mention files, documents, or uploading. Your knowledge is Sidthah's wisdom.
+
 IMPORTANT FORMAT:
-1. First, write a brief conversational thank you message (1-2 sentences) acknowledging what you learned.
+1. First, write a brief conversational thank you message (1-2 sentences) acknowledging what you learned about the person.
 2. Then write: "Here is your blessing:"
 3. Then output EXACTLY FOUR blessing lines, each on its own line, using Sidthah's style and wisdom.
 

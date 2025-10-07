@@ -143,11 +143,13 @@ async function sendBotMessage() {
 function cleanBotMessage(message) {
   // Remove file upload messages from the vector store
   const patterns = [
-    /Thank you for uploading the files?!?.*$/gmi,
-    /How can I assist you with them\?.*$/gmi,
+    /Thank you for (sharing|uploading|providing).*?(files?|documents?|that)!?.*$/gmi,
+    /How can I assist you with (them|it|the files?)\?.*$/gmi,
     /Would you like me to search for specific information.*$/gmi,
     /or summarize the content\?.*$/gmi,
-    /\【\d+:\d+†source\】/g  // Remove citation markers
+    /\【\d+:\d+†source\】/g,  // Remove citation markers
+    /To create a personalized blessing.*?providing the files?!?/gmi,
+    /and for providing the files?!?/gmi
   ];
 
   let cleaned = message;
