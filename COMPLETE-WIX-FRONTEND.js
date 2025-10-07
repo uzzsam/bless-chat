@@ -20,6 +20,11 @@ $w.onReady(() => {
   $w('#blessingText').hide();
   $w('#blessingContainer').hide();
 
+  // Make sure user bubble is collapsed in repeater template
+  $w('#chatRepeater').onItemReady(($item, itemData) => {
+    setupRepeaterItem($item, itemData);
+  });
+
   // Start conversation automatically
   sendBotMessage();
 
@@ -39,6 +44,15 @@ async function handleSend() {
 
   const userText = ($w('#userInput').value || '').trim();
   if (!userText) return;
+
+  // Check if blessing has already been created
+  const blessingCreated = wixStorage.session.getItem('blessingCreated');
+  if (blessingCreated === 'true') {
+    // Don't send more messages, just show a message
+    $w('#userInput').value = '';
+    addMessage('bot', 'Your blessing has been created! Scroll down to see it.');
+    return;
+  }
 
   // Clear input
   $w('#userInput').value = '';
@@ -64,15 +78,26 @@ async function handleSend() {
       throw new Error(data.error || `Error: ${res.status}`);
     }
 
-    // Add bot response
-    messages.push({ role: 'assistant', content: data.message });
-    addMessage('bot', data.message);
+    // Add bot response (but clean it of file upload messages)
+    const cleanedMessage = cleanBotMessage(data.message);
+    messages.push({ role: 'assistant', content: cleanedMessage });
 
-    // If conversation is done, show blessing
+    // If conversation is done, show blessing separately
     if (data.done) {
+      // Add thank you message to chat
+      const thankYouPart = extractThankYou(cleanedMessage);
+      if (thankYouPart) {
+        addMessage('bot', thankYouPart);
+      }
+
+      // Show the blessing in the blessing container
       setTimeout(() => {
-        showBlessing(data.message);
-      }, 1000);
+        showBlessing(cleanedMessage);
+        addMessage('bot', 'Your blessing has been created! Scroll down to see it.');
+      }, 500);
+    } else {
+      // Regular message
+      addMessage('bot', cleanedMessage);
     }
 
   } catch (err) {
@@ -101,8 +126,9 @@ async function sendBotMessage() {
       throw new Error(data.error || `Error: ${res.status}`);
     }
 
-    messages.push({ role: 'assistant', content: data.message });
-    addMessage('bot', data.message);
+    const cleanedMessage = cleanBotMessage(data.message);
+    messages.push({ role: 'assistant', content: cleanedMessage });
+    addMessage('bot', cleanedMessage);
 
   } catch (err) {
     console.error('Chat error:', err);
@@ -111,6 +137,34 @@ async function sendBotMessage() {
     isProcessing = false;
     $w('#sendButton').enable();
   }
+}
+
+// Clean bot messages from file upload artifacts
+function cleanBotMessage(message) {
+  // Remove file upload messages from the vector store
+  const patterns = [
+    /Thank you for uploading the files?!?.*$/gmi,
+    /How can I assist you with them\?.*$/gmi,
+    /Would you like me to search for specific information.*$/gmi,
+    /or summarize the content\?.*$/gmi,
+    /\【\d+:\d+†source\】/g  // Remove citation markers
+  ];
+
+  let cleaned = message;
+  patterns.forEach(pattern => {
+    cleaned = cleaned.replace(pattern, '');
+  });
+
+  return cleaned.trim();
+}
+
+// Extract thank you message (everything before "Here is your blessing:")
+function extractThankYou(message) {
+  if (message.includes('Here is your blessing:')) {
+    const parts = message.split('Here is your blessing:');
+    return parts[0].trim();
+  }
+  return '';
 }
 
 function addMessage(sender, text) {
@@ -149,37 +203,31 @@ function showBlessing(fullMessage) {
   $w('#blessingContainer').show();
   $w('#blessingText').show();
 
-  // Hide chat interface
-  $w('#chatRepeater').collapse();
-  $w('#userInput').collapse();
-  $w('#sendButton').collapse();
-
-  // Don't auto-scroll - let user discover the blessing
+  // Keep chat visible - don't collapse it
+  // Just disable further input
+  $w('#userInput').disable();
 
   // Store blessing for order personalization
   wixStorage.session.setItem('blessing', blessingLines);
   wixStorage.local.setItem('lastBlessing', blessingLines);
+  wixStorage.session.setItem('blessingCreated', 'true');
 
   console.log('Blessing saved:', blessingLines);
 }
 
 // Repeater item setup - NO LABELS, just bubbles with text
-$w('#chatRepeater').onItemReady(($item, itemData) => {
+function setupRepeaterItem($item, itemData) {
   if (itemData.showBot) {
     // Show bot bubble
-    $item('#botBubble').show();
+    $item('#botBubble').expand();
     $item('#botText').text = itemData.text;
-    // Hide user bubble
-    if ($item('#userBubble')) {
-      $item('#userBubble').collapse();
-    }
-  } else {
+    // Hide user bubble completely
+    $item('#userBubble').collapse();
+  } else if (itemData.showUser) {
     // Show user bubble
-    $item('#userBubble').show();
+    $item('#userBubble').expand();
     $item('#userText').text = itemData.text;
-    // Hide bot bubble
-    if ($item('#botBubble')) {
-      $item('#botBubble').collapse();
-    }
+    // Hide bot bubble completely
+    $item('#botBubble').collapse();
   }
-});
+}
