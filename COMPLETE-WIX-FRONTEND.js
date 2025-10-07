@@ -20,12 +20,12 @@ $w.onReady(() => {
   $w('#blessingText').hide();
   $w('#blessingContainer').hide();
 
-  // Make sure user bubble is collapsed in repeater template
+  // Set up repeater item handler BEFORE adding any data
   $w('#chatRepeater').onItemReady(($item, itemData) => {
     setupRepeaterItem($item, itemData);
   });
 
-  // Start conversation automatically
+  // Start conversation automatically (this will add first bot message)
   sendBotMessage();
 
   // Handle send button click
@@ -219,17 +219,17 @@ function showBlessing(fullMessage) {
 
 // Repeater item setup - NO LABELS, just bubbles with text
 function setupRepeaterItem($item, itemData) {
+  // ALWAYS hide both first, then show only the one we need
+  $item('#botBubble').collapse();
+  $item('#userBubble').collapse();
+
   if (itemData.showBot) {
-    // Show bot bubble
-    $item('#botBubble').expand();
+    // Show ONLY bot bubble
     $item('#botText').text = itemData.text;
-    // Hide user bubble completely
-    $item('#userBubble').collapse();
+    $item('#botBubble').expand();
   } else if (itemData.showUser) {
-    // Show user bubble
-    $item('#userBubble').expand();
+    // Show ONLY user bubble
     $item('#userText').text = itemData.text;
-    // Hide bot bubble completely
-    $item('#botBubble').collapse();
+    $item('#userBubble').expand();
   }
 }
