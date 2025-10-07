@@ -1,53 +1,29 @@
 export const runtime = 'edge';
 
-function allowedOrigin(origin: string | null): string | null {
-  if (!origin) return null;
-  try {
-    const u = new URL(origin);
-    if (u.protocol !== 'https:') return null;
-    // allow both apex and www
-    if (u.hostname === 'www.sidthah.com' || u.hostname === 'sidthah.com') return origin;
-    return null;
-  } catch { return null; }
-}
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Max-Age': '86400',
+  'Content-Type': 'application/json',
+};
 
-function corsHeaders(req: Request, allow: string | null) {
-  const reqHeaders = req.headers.get('access-control-request-headers') || 'Content-Type';
-  const h: Record<string, string> = {
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': reqHeaders,
-    'Access-Control-Max-Age': '86400',
-    'Vary': 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
-    'Content-Type': 'application/json',
-  };
-  if (allow) h['Access-Control-Allow-Origin'] = allow;
-  return h;
-}
-
-export async function OPTIONS(req: Request) {
-  const allow = allowedOrigin(req.headers.get('origin'));
-  const headers = corsHeaders(req, allow);
-  return new Response(null, { status: 204, headers });
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: corsHeaders });
 }
 
 export async function POST(req: Request) {
-  const origin = req.headers.get('origin');
-  const allow = allowedOrigin(origin);
-  const headers = corsHeaders(req, allow);
-  if (!allow) {
-    return new Response(JSON.stringify({ error: 'Forbidden origin' }), { status: 403, headers });
-  }
 
   try {
     const { recipient } = await req.json();
     if (!recipient || typeof recipient !== 'string') {
-      return new Response(JSON.stringify({ error: 'recipient is required' }), { status: 400, headers });
+      return new Response(JSON.stringify({ error: 'recipient is required' }), { status: 400, headers: corsHeaders });
     }
 
     const apiKey = process.env.OPENAI_API_KEY!;
     const vectorStoreId = process.env.OPENAI_VECTOR_STORE_ID!;
     if (!apiKey || !vectorStoreId) {
-      return new Response(JSON.stringify({ error: 'Server misconfigured' }), { status: 500, headers });
+      return new Response(JSON.stringify({ error: 'Server misconfigured' }), { status: 500, headers: corsHeaders });
     }
 
     const system =
@@ -75,7 +51,7 @@ export async function POST(req: Request) {
     const data = await r.json();
     if (!r.ok) {
       const msg = data?.error?.message || 'OpenAI error';
-      return new Response(JSON.stringify({ error: msg }), { status: r.status, headers });
+      return new Response(JSON.stringify({ error: msg }), { status: r.status, headers: corsHeaders });
     }
 
     const text =
@@ -83,8 +59,8 @@ export async function POST(req: Request) {
       (data.output?.[0]?.content?.find((c: any) => c.type === 'output_text')?.text) ??
       (data.output?.[0]?.content?.[0]?.text) ?? '';
 
-    return new Response(JSON.stringify({ blessing: (text || '').trim() }), { status: 200, headers });
+    return new Response(JSON.stringify({ blessing: (text || '').trim() }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e?.message || 'Server error' }), { status: 500, headers });
+    return new Response(JSON.stringify({ error: e?.message || 'Server error' }), { status: 500, headers: corsHeaders });
   }
 }
