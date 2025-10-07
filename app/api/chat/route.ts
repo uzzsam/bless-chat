@@ -68,9 +68,8 @@ The blessing should be warm, secular, grounded, and deeply personalized. Infuse 
       done = true;
     }
 
-    // For now, use Chat Completions API with enhanced instructions
-    // Note: Vector store integration requires Assistant API or preprocessing
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Use Responses API with vector store for Sidthah's knowledge
+    const r = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -78,12 +77,13 @@ The blessing should be warm, secular, grounded, and deeply personalized. Infuse 
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [
+        input: [
           { role: 'system', content: systemPrompt },
           ...messages
         ],
         temperature: 0.8,
-        max_tokens: 300,
+        max_output_tokens: 300,
+        tools: [{ type: 'file_search', vector_store_ids: [vectorStoreId] }]
       })
     });
 
@@ -97,7 +97,12 @@ The blessing should be warm, secular, grounded, and deeply personalized. Infuse 
       });
     }
 
-    const reply = data.choices?.[0]?.message?.content || 'I apologize, I cannot respond right now.';
+    // Extract response text from Responses API format
+    const reply =
+      data.output_text ??
+      (data.output?.[0]?.content?.find((c: any) => c.type === 'output_text')?.text) ??
+      (data.output?.[0]?.content?.[0]?.text) ??
+      'I apologize, I cannot respond right now.';
 
     return new Response(JSON.stringify({
       message: reply,
