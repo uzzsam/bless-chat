@@ -61,6 +61,10 @@ async function handleSend() {
   addMessage('user', userText);
   messages.push({ role: 'user', content: userText });
 
+  // Show loading indicator
+  addMessage('bot', '...');
+  const loadingId = `msg-loading-${Date.now()}`;
+
   // Send to API
   isProcessing = true;
   $w('#sendButton').disable();
@@ -77,6 +81,9 @@ async function handleSend() {
     if (!res.ok) {
       throw new Error(data.error || `Error: ${res.status}`);
     }
+
+    // Remove loading indicator
+    removeLastMessage();
 
     // Add bot response (but clean it of file upload messages)
     const cleanedMessage = cleanBotMessage(data.message);
@@ -185,25 +192,49 @@ function addMessage(sender, text) {
   // Don't auto-scroll - let user scroll themselves
 }
 
+function removeLastMessage() {
+  const currentData = $w('#chatRepeater').data;
+  if (currentData.length > 0) {
+    currentData.pop();
+    $w('#chatRepeater').data = currentData;
+  }
+}
+
 function showBlessing(fullMessage) {
-  // Extract blessing (find "Here is your blessing:" and take the 4 lines after it)
+  console.log('Full message:', fullMessage);
+
+  // Extract blessing (find "Here is your blessing:" and take EXACTLY 4 lines after it)
   let blessingLines = '';
 
   if (fullMessage.includes('Here is your blessing:')) {
     const parts = fullMessage.split('Here is your blessing:');
     const blessingPart = parts[1] || '';
-    const lines = blessingPart.split('\n').filter(l => l.trim()).slice(0, 4);
+    // Get non-empty lines and take exactly 4
+    const lines = blessingPart.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('---') && !l.startsWith('**'))
+      .slice(0, 4);
     blessingLines = lines.join('\n');
   } else {
     // Fallback: take last 4 non-empty lines
-    const lines = fullMessage.split('\n').filter(l => l.trim());
-    blessingLines = lines.slice(-4).join('\n');
+    const lines = fullMessage.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('---') && !l.startsWith('**'))
+      .slice(-4);
+    blessingLines = lines.join('\n');
   }
 
+  console.log('Extracted blessing:', blessingLines);
+
   // Show blessing in dedicated container
-  $w('#blessingText').text = blessingLines;
-  $w('#blessingContainer').show();
-  $w('#blessingText').show();
+  if ($w('#blessingText') && $w('#blessingContainer')) {
+    $w('#blessingText').text = blessingLines;
+    $w('#blessingText').show();
+    $w('#blessingContainer').expand();
+    console.log('Blessing container shown');
+  } else {
+    console.error('Blessing elements not found!');
+  }
 
   // Keep chat visible - don't collapse it
   // Just disable further input
