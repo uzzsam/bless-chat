@@ -98,9 +98,9 @@ async function handleSend() {
 
     // If conversation is done, show blessing separately
     if (data.done) {
-      // Add thank you message to chat
+      // Add thank you message to chat (only if it has content)
       const thankYouPart = extractThankYou(cleanedMessage);
-      if (thankYouPart) {
+      if (thankYouPart && thankYouPart.length > 0) {
         addMessage('bot', thankYouPart);
       }
 
@@ -110,8 +110,10 @@ async function handleSend() {
         addMessage('bot', 'Your blessing has been created! Scroll down to see it.');
       }, 500);
     } else {
-      // Regular message
-      addMessage('bot', cleanedMessage);
+      // Regular message (only add if not empty)
+      if (cleanedMessage && cleanedMessage.trim().length > 0) {
+        addMessage('bot', cleanedMessage);
+      }
     }
 
   } catch (err) {
@@ -184,6 +186,12 @@ function extractThankYou(message) {
 }
 
 function addMessage(sender, text) {
+  // Don't add empty messages
+  if (!text || text.trim().length === 0) {
+    console.log('Skipping empty message');
+    return;
+  }
+
   const currentData = $w('#chatRepeater').data;
 
   const newItem = {
