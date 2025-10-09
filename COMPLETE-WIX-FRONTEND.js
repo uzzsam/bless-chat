@@ -25,6 +25,9 @@ $w.onReady(() => {
     setupRepeaterItem($item, itemData);
   });
 
+  // Clear any cached blessing state on page load
+  wixStorage.session.removeItem('blessingCreated');
+
   // Start conversation automatically (this will add first bot message)
   sendBotMessage();
 
@@ -250,17 +253,22 @@ function showBlessing(fullMessage) {
 
 // Repeater item setup - NO LABELS, just bubbles with text
 function setupRepeaterItem($item, itemData) {
-  // ALWAYS hide both first, then show only the one we need
+  // FIRST: Set the text content BEFORE showing/hiding
+  // This prevents placeholder text from flashing
+  if (itemData.showBot) {
+    $item('#botText').text = itemData.text;
+  } else if (itemData.showUser) {
+    $item('#userText').text = itemData.text;
+  }
+
+  // THEN: Hide both bubbles first
   $item('#botBubble').collapse();
   $item('#userBubble').collapse();
 
+  // FINALLY: Show only the one we need
   if (itemData.showBot) {
-    // Show ONLY bot bubble
-    $item('#botText').text = itemData.text;
     $item('#botBubble').expand();
   } else if (itemData.showUser) {
-    // Show ONLY user bubble
-    $item('#userText').text = itemData.text;
     $item('#userBubble').expand();
   }
 }
