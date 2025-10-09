@@ -253,22 +253,26 @@ function showBlessing(fullMessage) {
 
 // Repeater item setup - NO LABELS, just bubbles with text
 function setupRepeaterItem($item, itemData) {
-  // FIRST: Set the text content BEFORE showing/hiding
-  // This prevents placeholder text from flashing
-  if (itemData.showBot) {
-    $item('#botText').text = itemData.text;
-  } else if (itemData.showUser) {
-    $item('#userText').text = itemData.text;
-  }
+  console.log('Setting up item:', itemData);
 
-  // THEN: Hide both bubbles first
+  // ALWAYS hide both bubbles first
   $item('#botBubble').collapse();
   $item('#userBubble').collapse();
 
-  // FINALLY: Show only the one we need
-  if (itemData.showBot) {
+  // Check if this is a valid message with data
+  if (!itemData || (!itemData.showBot && !itemData.showUser)) {
+    console.log('No valid data, hiding both bubbles');
+    return;
+  }
+
+  // Set text and show appropriate bubble
+  if (itemData.showBot && itemData.text) {
+    $item('#botText').text = itemData.text;
     $item('#botBubble').expand();
-  } else if (itemData.showUser) {
+    console.log('Showing bot bubble with:', itemData.text);
+  } else if (itemData.showUser && itemData.text) {
+    $item('#userText').text = itemData.text;
     $item('#userBubble').expand();
+    console.log('Showing user bubble with:', itemData.text);
   }
 }
