@@ -13,22 +13,26 @@ let messages = []; // Conversation history
 let isProcessing = false;
 
 $w.onReady(() => {
-  // Initialize with empty repeater
+  console.log('Page loaded, initializing...');
+
+  // Set up repeater item handler FIRST
+  $w('#chatRepeater').onItemReady(($item, itemData) => {
+    setupRepeaterItem($item, itemData);
+  });
+
+  // Force clear repeater data
   $w('#chatRepeater').data = [];
+  console.log('Repeater cleared, current data:', $w('#chatRepeater').data);
 
   // Hide blessing container initially
   $w('#blessingText').hide();
   $w('#blessingContainer').hide();
 
-  // Set up repeater item handler BEFORE adding any data
-  $w('#chatRepeater').onItemReady(($item, itemData) => {
-    setupRepeaterItem($item, itemData);
-  });
-
   // Clear any cached blessing state on page load
   wixStorage.session.removeItem('blessingCreated');
 
   // Start conversation automatically (this will add first bot message)
+  console.log('Starting conversation...');
   sendBotMessage();
 
   // Handle send button click
@@ -182,15 +186,19 @@ function extractThankYou(message) {
 function addMessage(sender, text) {
   const currentData = $w('#chatRepeater').data;
 
-  currentData.push({
+  const newItem = {
     _id: `msg-${Date.now()}-${Math.random()}`,
     sender: sender,
     text: text,
     showBot: sender === 'bot',
     showUser: sender === 'user'
-  });
+  };
+
+  console.log('Adding message:', newItem);
+  currentData.push(newItem);
 
   $w('#chatRepeater').data = currentData;
+  console.log('Repeater now has', currentData.length, 'items');
 
   // Don't auto-scroll - let user scroll themselves
 }
