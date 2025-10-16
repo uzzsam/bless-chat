@@ -23,6 +23,15 @@ const DEFAULTS: Required<WidgetOptions> = {
   requireBlessing: true,
 };
 
+function sanitizeString(value?: string | null): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const trimmed = value.toString().trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  if (lower === 'undefined' || lower === 'null') return undefined;
+  return trimmed;
+}
+
 const STYLE_BLOCK = `
 :root {
   --bless-green-900: 23, 95, 75;
@@ -288,7 +297,14 @@ class BlessChatWidget {
 
   constructor(container: HTMLElement, options?: WidgetOptions) {
     this.container = container;
-    this.options = { ...DEFAULTS, ...(options || {}) };
+    const merged = { ...DEFAULTS, ...(options || {}) };
+    this.options = {
+      apiUrl: sanitizeString(merged.apiUrl) ?? DEFAULTS.apiUrl,
+      placeholder: sanitizeString(merged.placeholder) ?? DEFAULTS.placeholder,
+      sendAriaLabel: sanitizeString(merged.sendAriaLabel) ?? DEFAULTS.sendAriaLabel,
+      loadingText: sanitizeString(merged.loadingText) ?? DEFAULTS.loadingText,
+      requireBlessing: merged.requireBlessing
+    };
     this.blessingDelivered = getSessionFlag(SESSION_KEY) === 'true';
   }
 
@@ -597,9 +613,9 @@ function isStreamResponse(response: Response) {
 }
 
 function resolveContainerConfig(element: HTMLElement): WidgetOptions {
-  const api = element.dataset.apiUrl;
-  const placeholder = element.dataset.placeholder;
-  const loading = element.dataset.loadingText;
+  const api = sanitizeString(element.dataset.apiUrl);
+  const placeholder = sanitizeString(element.dataset.placeholder);
+  const loading = sanitizeString(element.dataset.loadingText);
   return {
     apiUrl: api,
     placeholder,
