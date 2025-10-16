@@ -617,6 +617,8 @@ function mount(selector?: string, options?: WidgetOptions) {
     return;
   }
 
+  console.info('BlessChat: mounting widget', { selector, target });
+
   const config = { ...resolveContainerConfig(target), ...(options || {}) };
   const widget = new BlessChatWidget(target, config);
   widget.mount();
