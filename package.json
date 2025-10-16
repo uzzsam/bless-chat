@@ -4,18 +4,22 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
+    "build": "next build && npm run build:widget",
+    "start": "next start",
+    "build:widget": "node scripts/build-widget.mjs",
+    "dev:widget": "node scripts/build-widget.mjs --watch"
   },
   "dependencies": {
     "next": "^14.2.0",
     "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react-dom": "^18.3.0",
+    "openai": "^4.58.1"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "esbuild": "^0.23.0",
     "typescript": "^5"
   }
 }
