@@ -5,15 +5,18 @@
 
 type Role = 'user' | 'assistant';
 
-type Message = { role: Role; content: string };
+interface Message {
+  role: Role;
+  content: string;
+}
 
-type WidgetOptions = {
+interface WidgetOptions {
   apiUrl?: string;
   placeholder?: string;
   sendAriaLabel?: string;
   loadingText?: string;
   requireBlessing?: boolean;
-};
+}
 
 const DEFAULTS: Required<WidgetOptions> = {
   apiUrl: 'https://bless-test-brown.vercel.app/api/chat',
@@ -32,6 +35,7 @@ function sanitizeString(value?: string | null): string | undefined {
   return trimmed;
 }
 
+// Base styles for the chat widget. Additional styles for option buttons are appended below.
 const STYLE_BLOCK = `
 :root {
   --bless-green-900: 23, 95, 75;
@@ -225,6 +229,31 @@ const STYLE_BLOCK = `
     height: 56px;
   }
 }
+
+/* Additional styles for Sidthie option buttons */
+.bless-chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bless-chat-option {
+  display: block;
+  padding: 1.3rem clamp(1.6rem, 3.8vw, 2.6rem);
+  border-radius: 42px;
+  background: rgba(19, 63, 52, 0.72);
+  border: 1px solid rgba(var(--bless-gold-400), 0.4);
+  color: rgba(var(--bless-cream-100), 0.96);
+  font-size: clamp(1.02rem, 1vw + 0.9rem, 1.2rem);
+  line-height: 1.6;
+  cursor: pointer;
+  text-align: center;
+}
+
+.bless-chat-option:hover,
+.bless-chat-option:focus {
+  background: rgba(19, 63, 52, 0.85);
+}
 `;
 
 const styleEl = document.createElement('style');
@@ -405,7 +434,28 @@ class BlessChatWidget {
     await this.fetchAssistantReply();
   }
 
+  /**
+   * Render a message bubble to the UI. When the assistant sends a message that
+   * contains a numbered list of seven options, replace the bubble with interactive
+   * buttons so the user can tap to choose an intention.
+   */
   private appendMessage(message: Message, isStreaming = false) {
+    // Detect enumerated Sidthie list in assistant messages (not streaming). If found,
+    // show buttons instead of plain text.
+    if (message.role === 'assistant' && !isStreaming) {
+      const lines = message.content.split('\n').map((l) => l.trim()).filter(Boolean);
+      const optionLines = lines.filter((line) => /^[1-7]\.\s*/.test(line));
+      if (optionLines.length >= 7) {
+        const introLines = lines.filter((line) => !/^[1-7]\.\s*/.test(line));
+        const intro = introLines.join(' ').trim();
+        const options = optionLines.map((line) => line.replace(/^[1-7]\.\s*/, '').trim());
+        // Record the assistant's message in the history so the API can see it
+        this.messages.push({ role: 'assistant', content: message.content });
+        this.createOptionsBubble(options, intro);
+        return;
+      }
+    }
+
     const bubble = document.createElement('div');
     bubble.className = 'bless-chat-bubble';
     if (message.role === 'user') {
@@ -420,6 +470,45 @@ class BlessChatWidget {
       this.currentStreamingNode = bubble;
       this.currentStreamingText = message.content;
     }
+  }
+
+  /**
+   * Create a bubble containing a set of buttons for the seven Sidthies. If an
+   * introductory sentence is provided, it is rendered above the buttons.
+   */
+  private createOptionsBubble(options: string[], intro: string) {
+    if (intro) {
+      const introBubble = document.createElement('div');
+      introBubble.className = 'bless-chat-bubble';
+      introBubble.textContent = intro;
+      this.messageList.appendChild(introBubble);
+      this.scrollToBottom();
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bless-chat-bubble';
+    const container = document.createElement('div');
+    container.className = 'bless-chat-options';
+    options.forEach((opt) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'bless-chat-option';
+      btn.textContent = opt;
+      btn.addEventListener('click', () => {
+        // When a user selects an option, record it and continue the conversation
+        this.appendMessage({ role: 'user', content: opt });
+        this.messages.push({ role: 'user', content: opt });
+        // Disable all options after selection
+        container.querySelectorAll('button').forEach((b) => {
+          (b as HTMLButtonElement).disabled = true;
+        });
+        this.fetchAssistantReply();
+      });
+      container.appendChild(btn);
+    });
+    bubble.appendChild(container);
+    this.messageList.appendChild(bubble);
+    this.scrollToBottom();
   }
 
   private updateStreamingBubble(delta: string) {
@@ -528,7 +617,7 @@ class BlessChatWidget {
     let finalText = '';
     let aggregated = '';
 
-    this.appendMessage({ role: 'assistant', content: '', }, true);
+    this.appendMessage({ role: 'assistant', content: '' }, true);
 
     const decoder = new TextDecoder();
     let buffer = '';
