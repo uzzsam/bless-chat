@@ -35,7 +35,7 @@ function sanitizeString(value?: string | null): string | undefined {
   return trimmed;
 }
 
-// Base styles for the chat widget. Additional styles for option buttons are appended below.
+// Base styles for the chat widget.  Additional styles for option buttons are appended below.
 const STYLE_BLOCK = `
 :root {
   --bless-green-900: 23, 95, 75;
@@ -107,6 +107,8 @@ const STYLE_BLOCK = `
   color: rgba(var(--bless-cream-100), 0.96);
   font-size: clamp(1.02rem, 1vw + 0.9rem, 1.2rem);
   line-height: 1.6;
+  /* Align all message text to the left for improved readability */
+  text-align: left;
 }
 
 .bless-chat-bubble--user {
@@ -149,6 +151,9 @@ const STYLE_BLOCK = `
   font-size: clamp(1.05rem, 2vw, 1.2rem);
   line-height: 1.4;
   padding: 0.75rem 0;
+  /* Remove default background or hover effects that could turn the input white */
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .bless-chat-input::placeholder {
@@ -158,6 +163,15 @@ const STYLE_BLOCK = `
 
 .bless-chat-input:focus {
   outline: none;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Ensure input remains transparent on hover and focus */
+.bless-chat-input:hover,
+.bless-chat-input:focus {
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .bless-chat-send {
@@ -440,15 +454,17 @@ class BlessChatWidget {
    * buttons so the user can tap to choose an intention.
    */
   private appendMessage(message: Message, isStreaming = false) {
-    // Detect enumerated Sidthie list in assistant messages (not streaming). If found,
-    // show buttons instead of plain text.
+    // Detect enumerated Sidthie list in assistant messages (not streaming).  If found,
+    // show buttons instead of plain text.  Insert newlines before numbers to catch
+    // cases where the model outputs them in a single line.
     if (message.role === 'assistant' && !isStreaming) {
-      const lines = message.content.split('\n').map((l) => l.trim()).filter(Boolean);
-      const optionLines = lines.filter((line) => /^[1-7]\.\s*/.test(line));
+      const processed = message.content.replace(/([1-7]\\.\\s*)/g, '\\n$1');
+      const lines = processed.split('\\n').map((l) => l.trim()).filter(Boolean);
+      const optionLines = lines.filter((line) => /^[1-7]\\.\\s*/.test(line));
       if (optionLines.length >= 7) {
-        const introLines = lines.filter((line) => !/^[1-7]\.\s*/.test(line));
+        const introLines = lines.filter((line) => !/^[1-7]\\.\\s*/.test(line));
         const intro = introLines.join(' ').trim();
-        const options = optionLines.map((line) => line.replace(/^[1-7]\.\s*/, '').trim());
+        const options = optionLines.map((line) => line.replace(/^[1-7]\\.\\s*/, '').trim());
         // Record the assistant's message in the history so the API can see it
         this.messages.push({ role: 'assistant', content: message.content });
         this.createOptionsBubble(options, intro);
@@ -473,7 +489,7 @@ class BlessChatWidget {
   }
 
   /**
-   * Create a bubble containing a set of buttons for the seven Sidthies. If an
+   * Create a bubble containing a set of buttons for the seven Sidthies.  If an
    * introductory sentence is provided, it is rendered above the buttons.
    */
   private createOptionsBubble(options: string[], intro: string) {
@@ -674,17 +690,28 @@ class BlessChatWidget {
   private onAssistantComplete(text: string, done: boolean) {
     if (!text) return;
 
+    // If this was the final message, do not leave the blessing in the chat.
+    // Instead, remove the last assistant bubble, notify the user, and dispatch blessing:update.
     if (done) {
       this.blessingDelivered = true;
       setSessionFlag(SESSION_KEY, 'true');
+      // Remove the last assistant bubble (the full blessing)
+      const last = this.messageList.lastElementChild;
+      if (last && last.classList.contains('bless-chat-bubble')) {
+        this.messageList.removeChild(last);
+      }
+      // Dispatch to blessing reveal section
       window.dispatchEvent(
-        new CustomEvent('blessing:ready', {
+        new CustomEvent('blessing:update', {
           detail: {
-            blessing: text,
+            text,
             done: true
           }
         })
       );
+      // Show a short notice in the chat
+      this.pushAssistantMessage('Your blessing has been created! Scroll down to read it.');
+      return;
     }
   }
 }
