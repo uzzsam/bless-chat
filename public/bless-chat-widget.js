@@ -1,5 +1,5 @@
 "use strict";
-// BlessChat widget: self-invoking module attaches a mount function to window.BlessChat
+// BlessChat widget: self-invoking module attaches a mount function to window.BlessChat (fully updated version)
 var BlessChat = (() => {
   /** Default configuration values */
   const DEFAULTS = {
