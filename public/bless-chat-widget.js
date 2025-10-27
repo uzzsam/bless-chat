@@ -4,7 +4,7 @@
  * - Left-aligned bubbles
  * - Transparent input on hover/focus
  * - Robust streaming (works even if server lacks ndjson header)
- * - Sidthie options rendered as buttons resiliently
+ * - Sidthie options rendered as buttons (shown immediately after first user input)
  * - Dispatches `blessing:update` and also writes the reveal panel as fallback
  */
 var BlessChat = (() => {
@@ -75,7 +75,7 @@ var BlessChat = (() => {
   position:absolute;
   inset:12px;
   border-radius:36px;
-  border:1px solid rgba(255,255,255,0.12);
+  border:1px solid rgba(255,255,255,0.08); /* softened inner outline */
   pointer-events:none;
   opacity:0.6;
 }
@@ -105,7 +105,7 @@ var BlessChat = (() => {
   color:rgba(var(--bless-cream-100),0.96);
   font-size:clamp(1.02rem,1vw + 0.9rem,1.2rem);
   line-height:1.6;
-  text-align:left;
+  text-align:left; /* left align for readability */
 }
 .bless-chat-bubble--user{
   align-self:flex-end;
@@ -221,7 +221,10 @@ var BlessChat = (() => {
     /or summarize the content\?.*$/gim,
     /\【\d+:\d+†source\】/g,
     /To create a personalized blessing.*?providing the files?!?/gim,
-    /and for providing the files?!?/gim
+    /and for providing the files?!?/gim,
+    /you(?:'| )ve uploaded some files.*$/gim,
+    /i (?:see|noticed) (?:you )?uploaded.*$/gim,
+    /no image is needed.*$/gim
   ];
   function cleanAssistantText(message) {
     let cleaned = message ?? "";
@@ -245,6 +248,10 @@ var BlessChat = (() => {
       el.style.fontFamily = "'Cormorant Upright', serif";
       el.style.whiteSpace = "pre-line";
       el.style.textAlign = "center";
+      el.style.color = "#fff";                      // white text
+      el.style.fontSize = "clamp(22px, 3.2vw, 36px)";
+      el.style.lineHeight = "1.35";
+      el.style.textShadow = "0 2px 8px rgba(0,0,0,.55)";
       el.textContent = blessing;
     });
   }
@@ -294,6 +301,14 @@ var BlessChat = (() => {
 </svg>`;
   }
 
+  /** Present Sidthies immediately (helper) */
+  function presentIntents(widget, introText) {
+    if (widget.state.showedIntents || widget.state.intentChosen) return;
+    widget.state.showedIntents = true;
+    if (introText) widget.appendMessage({ role: "assistant", content: introText });
+    widget.createOptionsBubble(SIDTHIES, "");
+  }
+
   /** Widget */
   class BlessChatWidget {
     constructor(container, options) {
@@ -303,7 +318,10 @@ var BlessChat = (() => {
       this.blessingDelivered = getSessionFlag(SESSION_KEY) === "true";
       this.currentStreamingNode = null;
       this.currentStreamingText = "";
-      this.state = { askedName:false, showedIntents:false, intentChosen:false, recipientAsked:false, storyAsked:false, creating:false, done:false };
+      this.state = {
+        askedName:false, showedIntents:false, intentChosen:false,
+        recipientAsked:false, storyAsked:false, creating:false, done:false
+      };
 
       const merged = Object.assign({}, DEFAULTS, options || {});
       this.options = {
@@ -372,9 +390,7 @@ var BlessChat = (() => {
       }
     }
 
-    startConversation() {
-      this.fetchAssistantReply();
-    }
+    startConversation() { this.fetchAssistantReply(); }
 
     handleSubmit() {
       if (this.isProcessing) return;
@@ -385,9 +401,18 @@ var BlessChat = (() => {
         this.inputEl.value = "";
         return;
       }
+
       this.appendMessage({ role: "user", content: value });
       this.inputEl.value = "";
       this.messages.push({ role: "user", content: value });
+
+      // Show buttons immediately after FIRST user input (don’t wait for LLM phrasing)
+      const userCount = this.messages.filter(m => m.role === "user").length;
+      if (userCount === 1 && !this.state.showedIntents && !this.state.intentChosen) {
+        presentIntents(this, "Please choose one of the seven intentions:");
+        return; // wait for button click
+      }
+
       this.fetchAssistantReply();
     }
 
@@ -396,33 +421,25 @@ var BlessChat = (() => {
       if (message.role === "assistant" && !isStreaming) {
         const payload = (message.content || "");
         const processed = payload
-          // ensure each number starts a new line if present
-          .replace(/([*\-•]?\s*)([1-7])[\.\)\:]\s*/g, "\n$2. ")
+          .replace(/([*\-•]?\s*)([1-7])[\.\)\:]\s*/g, "\n$2. ") // normalize numbering
           .replace(/\s{2,}/g, " ")
           .trim();
         const lines = processed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-        // direct Sidthies presence check (robust against formatting)
         const hasAllNames = ["Inner Strength","Happiness","Love","Wisdom","Protection","Healing","Peace"]
           .every(n => payload.toLowerCase().includes(n.toLowerCase()));
-
         const optionLines = lines.filter(l => /^[1-7]\.\s+/.test(l) || /^(Inner Strength|Happiness|Love|Wisdom|Protection|Healing|Peace)/i.test(l));
 
-        if (hasAllNames || optionLines.length >= 7) {
-          if (this.state.showedIntents) {
-            // already showed once; avoid duplicates
-          } else {
-            const options = hasAllNames
-              ? SIDTHIES
-              : optionLines.slice(0,7).map(l => l.replace(/^[1-7]\.\s+/, "").trim());
-
-            const introLines = lines.filter(l => !/^[1-7]\.\s+/.test(l));
-            const intro = introLines.join(" ").trim();
-            this.messages.push({ role: "assistant", content: payload });
-            this.createOptionsBubble(options, intro);
-            this.state.showedIntents = true;
-            return;
-          }
+        if ((hasAllNames || optionLines.length >= 7) && !this.state.showedIntents && !this.state.intentChosen) {
+          const options = hasAllNames
+            ? SIDTHIES
+            : optionLines.slice(0,7).map(l => l.replace(/^[1-7]\.\s+/, "").trim());
+          const introLines = lines.filter(l => !/^[1-7]\.\s+/.test(l));
+          const intro = introLines.join(" ").trim();
+          this.messages.push({ role: "assistant", content: payload });
+          this.createOptionsBubble(options, intro);
+          this.state.showedIntents = true;
+          return;
         }
       }
 
@@ -531,7 +548,6 @@ var BlessChat = (() => {
         if (isProbablyStream(response)) {
           const used = await this.tryStream(response);
           if (used) return;
-          // fall through to JSON parse if stream yielded nothing
         }
 
         // Non-stream (or stream fallback)
@@ -624,10 +640,7 @@ var BlessChat = (() => {
       let blessing = maybeExtractBlessing(text);
 
       if (done || blessing) {
-        if (!blessing) {
-          // try to carve a 5-line poem if not explicitly marked
-          blessing = maybeExtractBlessing(text);
-        }
+        if (!blessing) blessing = maybeExtractBlessing(text);
         if (blessing) {
           this.blessingDelivered = true;
           try { sessionStorage.setItem(SESSION_KEY, "true"); } catch {}
