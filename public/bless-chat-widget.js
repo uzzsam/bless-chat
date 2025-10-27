@@ -269,7 +269,7 @@ var BlessChat = (() => {
       el.style.whiteSpace = "pre-line";
       el.style.textAlign = "center";
       el.style.color = "#fff";                      // white text
-      el.style.fontSize = "clamp(22px, 3.2vw, 36px)";
+      el.style.fontSize = "clamp(18px, 2.4vw, 30px)"; // size of blessing font
       el.style.lineHeight = "1.35";
       el.style.textShadow = "0 2px 8px rgba(0,0,0,.55)";
       el.textContent = blessing;
