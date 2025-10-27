@@ -2,15 +2,13 @@
 /**
  * BlessChat widget (compiled JS)
  * - Left-aligned bubbles
- * - Transparent input on hover/focus (no white box)
- * - Streams assistant responses
- * - Renders the seven Sidthie intents as buttons (even if options arrive on one line)
- * - Hides the final blessing from chat and dispatches `blessing:update` for the reveal section
- *   detail: { blessing: string, done: true }
- * Attaches global: window.BlessChat.mount([selector], [options])
+ * - Transparent input on hover/focus
+ * - Robust streaming (works even if server lacks ndjson header)
+ * - Sidthie options rendered as buttons resiliently
+ * - Dispatches `blessing:update` and also writes the reveal panel as fallback
  */
 var BlessChat = (() => {
-  /** Default configuration values */
+  /** Defaults */
   const DEFAULTS = {
     apiUrl: "https://bless-test-brown.vercel.app/api/chat",
     placeholder: "Talk to Sidthah",
@@ -19,7 +17,18 @@ var BlessChat = (() => {
     requireBlessing: true
   };
 
-  /** Sanitize a data attribute or option string */
+  /** Sidthies canonical list */
+  const SIDTHIES = [
+    "Inner Strength (NALAMERA)",
+    "Happiness (LUMASARA)",
+    "Love (WELAMORA)",
+    "Wisdom (NIRALUMA)",
+    "Protection (RAKAWELA)",
+    "Healing (OLANWELA)",
+    "Peace (MORASARA)"
+  ];
+
+  /** Sanitize */
   function sanitizeString(value) {
     if (value === undefined || value === null) return undefined;
     const trimmed = value.toString().trim();
@@ -29,7 +38,7 @@ var BlessChat = (() => {
     return trimmed;
   }
 
-  /** Styles (left-aligned text + transparent input focus/hover + buttons) */
+  /** CSS */
   const STYLE_BLOCK = `
 :root{
   --bless-green-900: 23, 95, 75;
@@ -96,7 +105,7 @@ var BlessChat = (() => {
   color:rgba(var(--bless-cream-100),0.96);
   font-size:clamp(1.02rem,1vw + 0.9rem,1.2rem);
   line-height:1.6;
-  text-align:left; /* force left-align for readability */
+  text-align:left;
 }
 .bless-chat-bubble--user{
   align-self:flex-end;
@@ -143,7 +152,7 @@ var BlessChat = (() => {
 .bless-chat-input:hover,
 .bless-chat-input:focus{
   outline:none !important;
-  background:transparent !important; /* prevent white box on hover/focus */
+  background:transparent !important;
   box-shadow:none !important;
 }
 
@@ -161,14 +170,8 @@ var BlessChat = (() => {
   transition:transform 180ms ease, box-shadow 180ms ease;
   box-shadow:0 12px 32px rgba(0,0,0,0.32);
 }
-.bless-chat-send[disabled]{
-  cursor:not-allowed;
-  opacity:0.7;
-  transform:none;
-  box-shadow:none;
-}
-.bless-chat-send:hover:not([disabled]),
-.bless-chat-send:focus-visible:not([disabled]){
+.bless-chat-send[disabled]{ cursor:not-allowed; opacity:0.7; transform:none; box-shadow:none; }
+.bless-chat-send:hover:not([disabled]), .bless-chat-send:focus-visible:not([disabled]){
   transform:translateY(-2px);
   box-shadow:0 18px 40px rgba(0,0,0,0.4);
 }
@@ -190,38 +193,27 @@ var BlessChat = (() => {
   .bless-chat-send{ width:56px;height:56px; }
 }
 
-/* Option buttons (Sidthies) */
-.bless-chat-options{
-  display:flex;
-  flex-direction:column;
-  gap:0.75rem;
-}
+/* Options (Sidthies) */
+.bless-chat-options{ display:flex; flex-direction:column; gap:0.75rem; }
 .bless-chat-option{
-  display:block;
-  padding:1.3rem clamp(1.6rem,3.8vw,2.6rem);
-  border-radius:42px;
-  background:rgba(19,63,52,0.72);
+  display:block; padding:1.3rem clamp(1.6rem,3.8vw,2.6rem);
+  border-radius:42px; background:rgba(19,63,52,0.72);
   border:1px solid rgba(var(--bless-gold-400),0.4);
   color:rgba(var(--bless-cream-100),0.96);
   font-size:clamp(1.02rem,1vw + 0.9rem,1.2rem);
-  line-height:1.6;
-  cursor:pointer;
-  text-align:center;
+  line-height:1.6; cursor:pointer; text-align:center;
 }
-.bless-chat-option:hover,
-.bless-chat-option:focus{
-  background:rgba(19,63,52,0.85);
-}
+.bless-chat-option:hover, .bless-chat-option:focus{ background:rgba(19,63,52,0.85); }
 `;
 
-  // Inject styles immediately
+  // Inject styles
   const styleEl = document.createElement("style");
   styleEl.textContent = STYLE_BLOCK;
   document.head.appendChild(styleEl);
 
   const SESSION_KEY = "bless-chat-blessing-created";
 
-  // Remove boilerplate or tool-text from assistant responses
+  /** Clean boilerplate fragments from LLM */
   const CLEAN_PATTERNS = [
     /Thank you for (sharing|uploading|providing).*?(files?|documents?|that)!?.*$/gim,
     /How can I assist you with (them|it|the files?)\?.*$/gim,
@@ -237,23 +229,60 @@ var BlessChat = (() => {
     return cleaned.trim();
   }
 
-  function getSessionFlag(key) {
+  /** Reveal helper (event + DOM fallback) */
+  function revealBlessing(blessing) {
     try {
-      return typeof sessionStorage !== "undefined"
-        ? sessionStorage.getItem(key)
-        : null;
-    } catch {
-      return null;
-    }
-  }
-  function setSessionFlag(key, value) {
-    try {
-      if (typeof sessionStorage !== "undefined") {
-        sessionStorage.setItem(key, value);
-      }
-    } catch { /* ignore */ }
+      window.dispatchEvent(new CustomEvent("blessing:update", {
+        detail: { blessing, done: true }
+      }));
+    } catch {}
+    const sel = [
+      "[data-bless-panel]",
+      ".bless-blessing__panel",
+      "#bless-blessing__panel"
+    ].join(",");
+    document.querySelectorAll(sel).forEach((el) => {
+      el.style.fontFamily = "'Cormorant Upright', serif";
+      el.style.whiteSpace = "pre-line";
+      el.style.textAlign = "center";
+      el.textContent = blessing;
+    });
   }
 
+  /** Heuristic extractor: five-line poem or explicit marker */
+  function maybeExtractBlessing(text) {
+    if (!text) return null;
+    const marker = /\[\[BLESSING\]\]\s*([\s\S]+)/i.exec(text);
+    if (marker && marker[1]) return marker[1].trim();
+    // Try 4–6 short poetic lines (no colons) as blessing body
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const body = lines.filter(l => !/^(?:note:|explanation:|choose|select|option)/i.test(l));
+    const poem = body.filter(l => !/:/.test(l));
+    if (poem.length >= 4 && poem.length <= 6) return poem.slice(0,5).join("\n");
+    return null;
+  }
+
+  /** Streaming detection: be permissive */
+  function isProbablyStream(response) {
+    const ct = (response.headers.get("Content-Type") || response.headers.get("content-type") || "").toLowerCase();
+    if (/ndjson|stream|event-stream|octet-stream|text\/plain/.test(ct)) return true;
+    return !!response.body; // readable body implies we can try streaming
+  }
+
+  /** Safe JSON clone */
+  function safeJson(response) {
+    return response.clone().json().catch(() => ({}));
+  }
+
+  /** Resolve config */
+  function resolveContainerConfig(element) {
+    const api = sanitizeString(element.dataset.apiUrl);
+    const placeholder = sanitizeString(element.dataset.placeholder);
+    const loading = sanitizeString(element.dataset.loadingText);
+    return { apiUrl: api, placeholder, loadingText: loading };
+  }
+
+  /** UI icon */
   function svgArrow() {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 120 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -265,50 +294,27 @@ var BlessChat = (() => {
 </svg>`;
   }
 
-  /** Determine if a response is an NDJSON stream */
-  function isStreamResponse(response) {
-    const contentType =
-      response.headers.get("Content-Type") ||
-      response.headers.get("content-type");
-    return contentType ? /ndjson|stream/.test(contentType) : false;
-  }
-
-  /** Safely parse JSON without throwing */
-  function safeJson(response) {
-    return response.clone().json().catch(() => ({}));
-  }
-
-  /** Resolve config from data attributes */
-  function resolveContainerConfig(element) {
-    const api = sanitizeString(element.dataset.apiUrl);
-    const placeholder = sanitizeString(element.dataset.placeholder);
-    const loading = sanitizeString(element.dataset.loadingText);
-    return { apiUrl: api, placeholder, loadingText: loading };
-  }
-
-  /** Chat widget implementation */
+  /** Widget */
   class BlessChatWidget {
     constructor(container, options) {
       this.container = container;
       this.messages = [];
       this.isProcessing = false;
-      this.blessingDelivered = false;
+      this.blessingDelivered = getSessionFlag(SESSION_KEY) === "true";
       this.currentStreamingNode = null;
       this.currentStreamingText = "";
+      this.state = { askedName:false, showedIntents:false, intentChosen:false, recipientAsked:false, storyAsked:false, creating:false, done:false };
+
       const merged = Object.assign({}, DEFAULTS, options || {});
       this.options = {
         apiUrl: sanitizeString(merged.apiUrl) ?? DEFAULTS.apiUrl,
         placeholder: sanitizeString(merged.placeholder) ?? DEFAULTS.placeholder,
-        sendAriaLabel:
-          sanitizeString(merged.sendAriaLabel) ?? DEFAULTS.sendAriaLabel,
-        loadingText:
-          sanitizeString(merged.loadingText) ?? DEFAULTS.loadingText,
+        sendAriaLabel: sanitizeString(merged.sendAriaLabel) ?? DEFAULTS.sendAriaLabel,
+        loadingText: sanitizeString(merged.loadingText) ?? DEFAULTS.loadingText,
         requireBlessing: merged.requireBlessing
       };
-      this.blessingDelivered = getSessionFlag(SESSION_KEY) === "true";
     }
 
-    /** Mount the widget into the DOM */
     mount() {
       this.container.innerHTML = "";
       this.container.classList.add("bless-chat-shell");
@@ -347,57 +353,35 @@ var BlessChat = (() => {
       this.sendBtn.className = "bless-chat-send";
       this.sendBtn.setAttribute("aria-label", this.options.sendAriaLabel);
       this.sendBtn.innerHTML = svgArrow();
+
       form.append(wrapper, this.sendBtn);
 
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        this.handleSubmit();
-      });
-
-      this.messageList.addEventListener("scroll", () => {
-        if (this.messageList.scrollTop === 0) {
-          this.messageList.classList.add("scrolled-top");
-        } else {
-          this.messageList.classList.remove("scrolled-top");
-        }
-      });
+      form.addEventListener("submit", (e) => { e.preventDefault(); this.handleSubmit(); });
 
       windowEl.append(this.messageList, this.statusEl, form, this.errorEl);
       this.container.appendChild(windowEl);
 
-      this.inputEl.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault();
-          this.handleSubmit();
-        }
+      this.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.handleSubmit(); }
       });
 
       if (this.blessingDelivered) {
-        this.pushAssistantMessage(
-          "Your blessing has already been crafted. Scroll to revisit it below."
-        );
+        this.pushAssistantMessage("Your blessing has already been crafted. Scroll to revisit it below.");
       } else {
         this.startConversation();
       }
     }
 
-    /** Begin the conversation by fetching the first assistant reply */
     startConversation() {
       this.fetchAssistantReply();
     }
 
-    /** Handle user form submission */
     handleSubmit() {
       if (this.isProcessing) return;
-      const value = this.inputEl.value.trim();
-      if (!value) {
-        this.inputEl.reportValidity();
-        return;
-      }
+      const value = (this.inputEl.value || "").trim();
+      if (!value) { this.inputEl.reportValidity(); return; }
       if (this.blessingDelivered && this.options.requireBlessing) {
-        this.pushAssistantMessage(
-          "Your blessing has been created. Scroll down to read it."
-        );
+        this.pushAssistantMessage("Your blessing has been created. Scroll down to read it.");
         this.inputEl.value = "";
         return;
       }
@@ -407,33 +391,38 @@ var BlessChat = (() => {
       this.fetchAssistantReply();
     }
 
-    /**
-     * Append a message to the chat.
-     * For assistant non-streaming messages:
-     *  - insert newlines before `1.`..`7.` to ensure detection
-     *  - render options as buttons if 7 choices are found
-     */
     appendMessage(message, isStreaming = false) {
+      // Assistant: attempt to render intents as buttons whenever detected
       if (message.role === "assistant" && !isStreaming) {
-        const processed = (message.content || "").replace(
-          /([1-7]\\.\s*)/g,
-          "\n$1"
-        );
-        const lines = processed
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean);
-        const optionLines = lines.filter((line) => /^[1-7]\.\s*/.test(line));
-        if (optionLines.length >= 7) {
-          const introLines = lines.filter((line) => !/^[1-7]\.\s*/.test(line));
-          const intro = introLines.join(" ").trim();
-          const options = optionLines.map((line) =>
-            line.replace(/^[1-7]\.\s*/, "").trim()
-          );
-          // record assistant message for history
-          this.messages.push({ role: "assistant", content: message.content });
-          this.createOptionsBubble(options, intro);
-          return;
+        const payload = (message.content || "");
+        const processed = payload
+          // ensure each number starts a new line if present
+          .replace(/([*\-•]?\s*)([1-7])[\.\)\:]\s*/g, "\n$2. ")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        const lines = processed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+        // direct Sidthies presence check (robust against formatting)
+        const hasAllNames = ["Inner Strength","Happiness","Love","Wisdom","Protection","Healing","Peace"]
+          .every(n => payload.toLowerCase().includes(n.toLowerCase()));
+
+        const optionLines = lines.filter(l => /^[1-7]\.\s+/.test(l) || /^(Inner Strength|Happiness|Love|Wisdom|Protection|Healing|Peace)/i.test(l));
+
+        if (hasAllNames || optionLines.length >= 7) {
+          if (this.state.showedIntents) {
+            // already showed once; avoid duplicates
+          } else {
+            const options = hasAllNames
+              ? SIDTHIES
+              : optionLines.slice(0,7).map(l => l.replace(/^[1-7]\.\s+/, "").trim());
+
+            const introLines = lines.filter(l => !/^[1-7]\.\s+/.test(l));
+            const intro = introLines.join(" ").trim();
+            this.messages.push({ role: "assistant", content: payload });
+            this.createOptionsBubble(options, intro);
+            this.state.showedIntents = true;
+            return;
+          }
         }
       }
 
@@ -450,14 +439,12 @@ var BlessChat = (() => {
       }
     }
 
-    /** Create a bubble with interactive option buttons */
     createOptionsBubble(options, intro) {
       if (intro) {
         const introBubble = document.createElement("div");
         introBubble.className = "bless-chat-bubble";
         introBubble.textContent = intro;
         this.messageList.appendChild(introBubble);
-        this.scrollToBottom();
       }
       const bubble = document.createElement("div");
       bubble.className = "bless-chat-bubble";
@@ -469,8 +456,10 @@ var BlessChat = (() => {
         btn.className = "bless-chat-option";
         btn.textContent = opt;
         btn.addEventListener("click", () => {
+          if (this.state.intentChosen) return;
           this.appendMessage({ role: "user", content: opt });
           this.messages.push({ role: "user", content: opt });
+          this.state.intentChosen = true;
           container.querySelectorAll("button").forEach((b) => (b.disabled = true));
           this.fetchAssistantReply();
         });
@@ -481,7 +470,6 @@ var BlessChat = (() => {
       this.scrollToBottom();
     }
 
-    /** Update the streaming bubble with incremental delta text */
     updateStreamingBubble(delta) {
       if (!this.currentStreamingNode) return;
       this.currentStreamingText += delta;
@@ -489,7 +477,6 @@ var BlessChat = (() => {
       this.scrollToBottom();
     }
 
-    /** Finalize a streaming bubble once the stream completes */
     finalizeStreamingBubble(finalText) {
       if (this.currentStreamingNode) {
         this.currentStreamingNode.textContent = (finalText || "").trim();
@@ -499,42 +486,26 @@ var BlessChat = (() => {
       this.scrollToBottom();
     }
 
-    /** Append an assistant message and push to history */
     pushAssistantMessage(text) {
       const message = { role: "assistant", content: text };
       this.appendMessage(message);
       this.messages.push(message);
     }
 
-    /** Update or clear the status indicator */
     setStatus(text) {
-      if (text) {
-        this.statusEl.textContent = text;
-        this.statusEl.hidden = false;
-      } else {
-        this.statusEl.hidden = true;
-      }
+      if (text) { this.statusEl.textContent = text; this.statusEl.hidden = false; }
+      else { this.statusEl.hidden = true; }
     }
 
-    /** Update or clear the error indicator */
     setError(message) {
-      if (message) {
-        this.errorEl.textContent = message;
-        this.errorEl.hidden = false;
-      } else {
-        this.errorEl.hidden = true;
-        this.errorEl.textContent = "";
-      }
+      if (message) { this.errorEl.textContent = message; this.errorEl.hidden = false; }
+      else { this.errorEl.hidden = true; this.errorEl.textContent = ""; }
     }
 
-    /** Scroll the chat to the bottom */
     scrollToBottom() {
-      requestAnimationFrame(() => {
-        this.messageList.scrollTop = this.messageList.scrollHeight;
-      });
+      requestAnimationFrame(() => { this.messageList.scrollTop = this.messageList.scrollHeight; });
     }
 
-    /** Fetch a reply from the API and stream the assistant's response */
     fetchAssistantReply() {
       this.isProcessing = true;
       this.sendBtn.disabled = true;
@@ -549,55 +520,54 @@ var BlessChat = (() => {
         body: JSON.stringify({ messages: this.messages }),
         signal: controller.signal
       })
-        .then(async (response) => {
-          this.setStatus();
-          if (!response.ok) {
-            const data = await safeJson(response);
-            throw new Error(
-              data?.error || `Request failed with status ${response.status}`
-            );
-          }
-          if (isStreamResponse(response)) {
-            await this.handleStream(response);
-          } else {
-            const data = await response.json();
-            const text = data?.message || "";
-            const done = Boolean(data?.done);
-            if (text) {
-              const cleaned = cleanAssistantText(text);
-              const payload = cleaned || text;
-              this.appendMessage({ role: "assistant", content: payload });
-              this.messages.push({ role: "assistant", content: payload });
-              this.onAssistantComplete(payload, done);
-            }
-          }
-        })
-        .catch((error) => {
-          console.error("Bless chat error", error);
-          this.setError(error?.message || "Something went wrong. Please try again.");
-          this.pushAssistantMessage(
-            "I could not continue the conversation. Let us try once more when you are ready."
-          );
-        })
-        .finally(() => {
-          this.isProcessing = false;
-          this.sendBtn.disabled = false;
-        });
+      .then(async (response) => {
+        this.setStatus();
+        if (!response.ok) {
+          const data = await safeJson(response);
+          throw new Error(data?.error || `Request failed with status ${response.status}`);
+        }
+
+        // Try streaming first if possible (even without header)
+        if (isProbablyStream(response)) {
+          const used = await this.tryStream(response);
+          if (used) return;
+          // fall through to JSON parse if stream yielded nothing
+        }
+
+        // Non-stream (or stream fallback)
+        const data = await response.json().catch(() => ({}));
+        const text = data?.message || "";
+        const done = Boolean(data?.done);
+        if (text) {
+          const cleaned = cleanAssistantText(text);
+          const payload = cleaned || text;
+          this.appendMessage({ role: "assistant", content: payload });
+          this.messages.push({ role: "assistant", content: payload });
+          this.onAssistantComplete(payload, done);
+        }
+      })
+      .catch((error) => {
+        console.error("Bless chat error", error);
+        this.setError(error?.message || "Something went wrong. Please try again.");
+        this.pushAssistantMessage("I could not continue the conversation. Let us try once more when you are ready.");
+      })
+      .finally(() => {
+        this.isProcessing = false;
+        this.sendBtn.disabled = false;
+      });
     }
 
-    /** Handle streaming responses from the API (NDJSON) */
-    async handleStream(response) {
-      const reader = response.body?.getReader();
-      if (!reader) {
-        const fallback = await response.text();
-        this.pushAssistantMessage(fallback);
-        return;
-      }
+    /** Streaming using permissive NDJSON reader; returns true if any tokens were received */
+    async tryStream(response) {
+      const reader = response.body?.getReader?.();
+      if (!reader) return false;
+
+      let gotAny = false;
       let doneFlag = false;
       let finalText = "";
       let aggregated = "";
 
-      // Start an empty streaming bubble
+      // Start streaming bubble
       this.appendMessage({ role: "assistant", content: "" }, true);
 
       const decoder = new TextDecoder();
@@ -605,31 +575,23 @@ var BlessChat = (() => {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        gotAny = true;
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split("\n");
         buffer = parts.pop() || "";
         for (const part of parts) {
-          if (!part.trim()) continue;
+          const line = part.trim();
+          if (!line) continue;
           let payload;
-          try {
-            payload = JSON.parse(part);
-          } catch {
-            console.warn("Unable to parse stream chunk", part);
-            continue;
-          }
+          try { payload = JSON.parse(line); } catch { continue; }
+
           if (payload.type === "response.delta" && typeof payload.delta === "string") {
             aggregated += payload.delta;
             this.updateStreamingBubble(payload.delta);
-          } else if (
-            payload.type === "response.output_text.delta" &&
-            typeof payload.textDelta === "string"
-          ) {
+          } else if (payload.type === "response.output_text.delta" && typeof payload.textDelta === "string") {
             aggregated += payload.textDelta;
             this.updateStreamingBubble(payload.textDelta);
-          } else if (
-            payload.type === "response.message.delta" &&
-            typeof payload.delta === "string"
-          ) {
+          } else if (payload.type === "response.message.delta" && typeof payload.delta === "string") {
             aggregated += payload.delta;
             this.updateStreamingBubble(payload.delta);
           } else if (payload.type === "meta" && typeof payload.done === "boolean") {
@@ -642,65 +604,71 @@ var BlessChat = (() => {
           }
         }
       }
+
       const resolved = (finalText || aggregated).trim();
+      if (!gotAny && !resolved) return false;
+
       const cleaned = cleanAssistantText(resolved);
       const output = cleaned || resolved;
       this.finalizeStreamingBubble(output);
       this.messages.push({ role: "assistant", content: output });
       this.onAssistantComplete(output, doneFlag);
+      return true;
     }
 
-    /**
-     * Handle completion of an assistant message.
-     * When `done === true`, do NOT leave the full blessing in the chat.
-     * Instead dispatch `blessing:update` and replace the last assistant bubble
-     * with a short notice.
-     */
+    /** Completion handler: try to detect blessing even if backend didn't set done=true */
     onAssistantComplete(text, done) {
       if (!text) return;
 
-      if (done) {
-        this.blessingDelivered = true;
-        setSessionFlag(SESSION_KEY, "true");
+      // Heuristic extraction if server didn't mark done
+      let blessing = maybeExtractBlessing(text);
 
-        // Dispatch update for the reveal section
-        window.dispatchEvent(
-          new CustomEvent("blessing:update", {
-            detail: { blessing: text, done: true }
-          })
-        );
-
-        // Replace the last assistant bubble text with a short notice
-        const bubbles = Array.from(
-          this.messageList.querySelectorAll(".bless-chat-bubble")
-        );
-        for (let i = bubbles.length - 1; i >= 0; i--) {
-          const b = bubbles[i];
-          if (!b.classList.contains("bless-chat-bubble--user")) {
-            b.textContent =
-              "Your blessing is ready. Scroll down to the Blessing Reveal to read it.";
-            break;
-          }
+      if (done || blessing) {
+        if (!blessing) {
+          // try to carve a 5-line poem if not explicitly marked
+          blessing = maybeExtractBlessing(text);
         }
+        if (blessing) {
+          this.blessingDelivered = true;
+          try { sessionStorage.setItem(SESSION_KEY, "true"); } catch {}
+          revealBlessing(blessing);
+
+          // Replace last assistant bubble with a short notice
+          const bubbles = Array.from(this.messageList.querySelectorAll(".bless-chat-bubble"));
+          for (let i = bubbles.length - 1; i >= 0; i--) {
+            const b = bubbles[i];
+            if (!b.classList.contains("bless-chat-bubble--user")) {
+              b.textContent = "Your blessing is ready. Scroll down to the Blessing Reveal to read it.";
+              break;
+            }
+          }
+          return;
+        }
+      }
+
+      // Guard rails against weird detours (images, uploads, etc.)
+      if (/image|upload|photo|picture/i.test(text)) {
+        this.pushAssistantMessage("No image is needed. Let us continue in words.");
       }
     }
   }
 
-  /** Public mount helper */
+  /** Helpers */
+  function getSessionFlag(key) {
+    try { return typeof sessionStorage !== "undefined" ? sessionStorage.getItem(key) : null; } catch { return null; }
+  }
+
+  /** Public mount */
   function mount(selector, options) {
     const target = selector
       ? document.querySelector(selector)
       : document.querySelector("[data-chat-container]");
-    if (!target) {
-      console.warn("BlessChat: target container not found.");
-      return;
-    }
+    if (!target) { console.warn("BlessChat: target container not found."); return; }
     const config = Object.assign({}, resolveContainerConfig(target), options || {});
     const widget = new BlessChatWidget(target, config);
     widget.mount();
   }
 
-  // Attach to window
   if (typeof window !== "undefined") {
     window.BlessChat = { mount };
     if (document.readyState === "loading") {
