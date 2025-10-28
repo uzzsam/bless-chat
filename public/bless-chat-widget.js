@@ -105,7 +105,7 @@ var BlessChat = (() => {
   color:rgba(var(--bless-cream-100),0.96);
   font-size:clamp(1.02rem,1vw + 0.9rem,1.2rem);
   line-height:1.6;
-  text-align:left; /* left align for readability */
+  text-align:left;
 }
 .bless-chat-bubble--user{
   align-self:flex-end;
@@ -194,16 +194,30 @@ var BlessChat = (() => {
 }
 
 /* Options (Sidthies) */
-.bless-chat-options{ display:flex; flex-direction:column; gap:0.75rem; }
-.bless-chat-option{
-  display:block; padding:1.3rem clamp(1.6rem,3.8vw,2.6rem);
-  border-radius:42px; background:rgba(19,63,52,0.72);
-  border:1px solid rgba(var(--bless-gold-400),0.4);
-  color:rgba(var(--bless-cream-100),0.96);
-  font-size:clamp(1.02rem,1vw + 0.9rem,1.2rem);
-  line-height:1.6; cursor:pointer; text-align:center;
+.bless-chat-options{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:.5rem;
 }
-.bless-chat-option:hover, .bless-chat-option:focus{ background:rgba(19,63,52,0.85); }
+@media (max-width:640px){
+  .bless-chat-options{ grid-template-columns:1fr; }
+}
+
+.bless-chat-option{
+  display:block;
+  padding:.8rem 1.2rem;            /* smaller buttons */
+  border-radius:28px;
+  background:rgba(19,63,52,.72);
+  border:1px solid rgba(var(--bless-gold-400),.35);
+  color:rgba(var(--bless-cream-100),.96);
+  font-size:clamp(.95rem, .5vw + .9rem, 1.05rem);  /* smaller text */
+  line-height:1.45;
+  cursor:pointer;
+  text-align:center;
+}
+.bless-chat-option:hover,.bless-chat-option:focus{
+  background:rgba(19,63,52,.85);
+}
 `;
 
   // Inject styles
@@ -249,7 +263,7 @@ var BlessChat = (() => {
       el.style.whiteSpace = "pre-line";
       el.style.textAlign = "center";
       el.style.color = "#fff";                      // white text
-      el.style.fontSize = "clamp(22px, 3.2vw, 36px)";
+      el.style.fontSize = "clamp(18px, 2.4vw, 30px)"; // slightly smaller for long lines
       el.style.lineHeight = "1.35";
       el.style.textShadow = "0 2px 8px rgba(0,0,0,.55)";
       el.textContent = blessing;
@@ -604,10 +618,16 @@ var BlessChat = (() => {
           if (payload.type === "response.delta" && typeof payload.delta === "string") {
             aggregated += payload.delta;
             this.updateStreamingBubble(payload.delta);
-          } else if (payload.type === "response.output_text.delta" && typeof payload.textDelta === "string") {
+          } else if (
+            payload.type === "response.output_text.delta" &&
+            typeof payload.textDelta === "string"
+          ) {
             aggregated += payload.textDelta;
             this.updateStreamingBubble(payload.textDelta);
-          } else if (payload.type === "response.message.delta" && typeof payload.delta === "string") {
+          } else if (
+            payload.type === "response.message.delta" &&
+            typeof payload.delta === "string"
+          ) {
             aggregated += payload.delta;
             this.updateStreamingBubble(payload.delta);
           } else if (payload.type === "meta" && typeof payload.done === "boolean") {
