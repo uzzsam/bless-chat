@@ -320,16 +320,59 @@ interface SidthieMeta {
   key: string;
   label: string;
   short: string;
+  description: string;
 }
 
 const SIDTHIE_META: Record<string, SidthieMeta> = {
-  NALAMERA: { key: 'NALAMERA', label: 'Inner Strength', short: 'A steady courage that rises quietly from within.' },
-  LUMASARA: { key: 'LUMASARA', label: 'Happiness', short: 'A soft, luminous joy that brightens the ordinary.' },
-  WELAMORA: { key: 'WELAMORA', label: 'Love', short: 'A tender presence that listens and embraces.' },
-  NIRALUMA: { key: 'NIRALUMA', label: 'Wisdom', short: 'A calm clarity that sees the path with kindness.' },
-  RAKAWELA: { key: 'RAKAWELA', label: 'Protection', short: 'A gentle guard that shelters what is precious.' },
-  OLANWELA: { key: 'OLANWELA', label: 'Healing', short: 'A quiet mending that restores balance and breath.' },
-  MORASARA: { key: 'MORASARA', label: 'Peace', short: 'A stillness that settles and softens the heart.' },
+  NALAMERA: {
+    key: 'NALAMERA',
+    label: 'Inner Strength',
+    short: 'A steady courage that rises quietly from within.',
+    description:
+      'Nalamera steadies the breath and roots the heart; she carries the quiet strength that holds families together when storms arrive.',
+  },
+  LUMASARA: {
+    key: 'LUMASARA',
+    label: 'Happiness',
+    short: 'A soft, luminous joy that brightens the ordinary.',
+    description:
+      'Lumasara brightens every ordinary moment with the glow of celebration, inviting laughter to linger like sunlight through leaves.',
+  },
+  WELAMORA: {
+    key: 'WELAMORA',
+    label: 'Love',
+    short: 'A tender presence that listens and embraces.',
+    description:
+      'Welamora listens with the whole heart, weaving warmth and devotion so love can be felt in every touch and every word.',
+  },
+  NIRALUMA: {
+    key: 'NIRALUMA',
+    label: 'Wisdom',
+    short: 'A calm clarity that sees the path with kindness.',
+    description:
+      'Niraluma pours lantern-light across the path ahead, offering gentle insight and elder grace to every decision you make.',
+  },
+  RAKAWELA: {
+    key: 'RAKAWELA',
+    label: 'Protection',
+    short: 'A gentle guard that shelters what is precious.',
+    description:
+      'Rakawela stands as a quiet guardian, wrapping loved ones in vigilant kindness and turning away every shadow that approaches.',
+  },
+  OLANWELA: {
+    key: 'OLANWELA',
+    label: 'Healing',
+    short: 'A quiet mending that restores balance and breath.',
+    description:
+      'Olanwela soothes weary hearts and tired bones, bathing the spirit in cool rivers of renewal and compassionate rest.',
+  },
+  MORASARA: {
+    key: 'MORASARA',
+    label: 'Peace',
+    short: 'A stillness that settles and softens the heart.',
+    description:
+      'Morasara settles like evening mist, inviting deep breaths, calm conversations, and the promise of belonging wherever you stand.',
+  },
 };
 
 const SIDTHIE_VALUES = Object.values(SIDTHIE_META);
@@ -911,7 +954,7 @@ class BlessChatWidget {
       blessing,
       sidthie: meta?.key,
       sidthieLabel: meta?.label,
-      explanation: meta?.short,
+      explanation: meta?.description || meta?.short,
     };
 
     this.renderBlessingPanel(detail);
