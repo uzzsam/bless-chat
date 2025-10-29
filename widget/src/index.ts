@@ -242,24 +242,28 @@ const STYLE_BLOCK = `
     width: 56px;
     height: 56px;
   }
+
+  .bless-chat-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Additional styles for Sidthie option buttons */
 .bless-chat-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 0.9rem;
 }
 
 .bless-chat-option {
   display: block;
-  padding: 1.3rem clamp(1.6rem, 3.8vw, 2.6rem);
+  padding: 1.1rem clamp(1.4rem, 3.2vw, 2.3rem);
   border-radius: 42px;
   background: rgba(19, 63, 52, 0.72);
   border: 1px solid rgba(var(--bless-gold-400), 0.4);
   color: rgba(var(--bless-cream-100), 0.96);
-  font-size: clamp(1.02rem, 1vw + 0.9rem, 1.2rem);
-  line-height: 1.6;
+  font-size: clamp(0.98rem, 0.8vw + 0.9rem, 1.15rem);
+  line-height: 1.55;
   cursor: pointer;
   text-align: center;
 }
@@ -268,11 +272,83 @@ const STYLE_BLOCK = `
 .bless-chat-option:focus {
   background: rgba(19, 63, 52, 0.85);
 }
+
+.bless-chat-bubble--status.is-typing {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.bless-typing {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.bless-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(var(--bless-cream-100), 0.75);
+  animation: bless-dot 900ms ease-in-out infinite alternate;
+}
+
+.bless-typing span:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.bless-typing span:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+@keyframes bless-dot {
+  from {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
 `;
 
 const styleEl = document.createElement('style');
 styleEl.textContent = STYLE_BLOCK;
 document.head.appendChild(styleEl);
+
+interface SidthieMeta {
+  key: string;
+  label: string;
+  short: string;
+}
+
+const SIDTHIE_META: Record<string, SidthieMeta> = {
+  NALAMERA: { key: 'NALAMERA', label: 'Inner Strength', short: 'A steady courage that rises quietly from within.' },
+  LUMASARA: { key: 'LUMASARA', label: 'Happiness', short: 'A soft, luminous joy that brightens the ordinary.' },
+  WELAMORA: { key: 'WELAMORA', label: 'Love', short: 'A tender presence that listens and embraces.' },
+  NIRALUMA: { key: 'NIRALUMA', label: 'Wisdom', short: 'A calm clarity that sees the path with kindness.' },
+  RAKAWELA: { key: 'RAKAWELA', label: 'Protection', short: 'A gentle guard that shelters what is precious.' },
+  OLANWELA: { key: 'OLANWELA', label: 'Healing', short: 'A quiet mending that restores balance and breath.' },
+  MORASARA: { key: 'MORASARA', label: 'Peace', short: 'A stillness that settles and softens the heart.' },
+};
+
+const SIDTHIE_VALUES = Object.values(SIDTHIE_META);
+
+function findSidthieByKey(key?: string | null): SidthieMeta | null {
+  if (!key) return null;
+  const upper = key.toUpperCase();
+  return SIDTHIE_META[upper] ?? null;
+}
+
+function findSidthieByLabel(text?: string | null): SidthieMeta | null {
+  if (!text) return null;
+  const trimmed = text.trim().toLowerCase();
+  return (
+    SIDTHIE_VALUES.find((meta) => meta.label.toLowerCase() === trimmed) ??
+    SIDTHIE_VALUES.find((meta) => trimmed.includes(meta.label.toLowerCase())) ??
+    null
+  );
+}
 
 function svgArrow() {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -353,9 +429,24 @@ function parseSidthieOptions(payload: string | undefined | null) {
   if (optionLines.length < 7) return null;
   const introLines = lines.filter((line) => !/^[1-7]\.\s*/.test(line));
   const intro = introLines.join(' ').trim();
-  const options = optionLines.map((line) => line.replace(/^[1-7]\.\s*/, '').trim());
-  if (options.length < 7) return null;
-  return { intro, options };
+  const hasAll = SIDTHIE_VALUES.every((meta) => {
+    const lower = processed.toLowerCase();
+    return lower.includes(meta.label.toLowerCase()) || processed.includes(`(${meta.key})`);
+  });
+  if (!hasAll) return null;
+  const options = SIDTHIE_VALUES.map((meta) => `${meta.label} (${meta.key})`);
+  return { intro, options, metas: SIDTHIE_VALUES };
+}
+
+function resolveSidthieFromOption(option: string): SidthieMeta | null {
+  if (!option) return null;
+  const keyMatch = option.match(/\(([A-Za-z]+)\)\s*$/);
+  if (keyMatch) {
+    const meta = findSidthieByKey(keyMatch[1]);
+    if (meta) return meta;
+  }
+  const label = option.replace(/\([^)]*\)/g, '').trim();
+  return findSidthieByLabel(label);
 }
 
 class BlessChatWidget {
@@ -372,6 +463,7 @@ class BlessChatWidget {
   private errorEl!: HTMLElement;
   private currentStreamingNode: HTMLDivElement | null = null;
   private currentStreamingText = '';
+  private activeSidthie: SidthieMeta | null = null;
 
   constructor(container: HTMLElement, options?: WidgetOptions) {
     this.container = container;
@@ -459,6 +551,7 @@ class BlessChatWidget {
   }
 
   private async startConversation() {
+    this.activeSidthie = null;
     await this.fetchAssistantReply();
   }
 
@@ -496,7 +589,7 @@ class BlessChatWidget {
       const parsed = parseSidthieOptions(message.content);
       if (parsed) {
         this.messages.push({ role: 'assistant', content: message.content });
-        this.createOptionsBubble(parsed.options, parsed.intro);
+        this.createOptionsBubble(parsed.options, parsed.intro, parsed.metas);
         return;
       }
     }
@@ -521,7 +614,9 @@ class BlessChatWidget {
    * Create a bubble containing a set of buttons for the seven Sidthies.  If an
    * introductory sentence is provided, it is rendered above the buttons.
    */
-  private createOptionsBubble(options: string[], intro: string) {
+  private createOptionsBubble(options: string[], intro: string, metas?: SidthieMeta[]) {
+    this.activeSidthie = null;
+
     if (intro) {
       const introBubble = document.createElement('div');
       introBubble.className = 'bless-chat-bubble';
@@ -534,12 +629,25 @@ class BlessChatWidget {
     bubble.className = 'bless-chat-bubble';
     const container = document.createElement('div');
     container.className = 'bless-chat-options';
-    options.forEach((opt) => {
+    options.forEach((opt, index) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'bless-chat-option';
       btn.textContent = opt;
       btn.addEventListener('click', () => {
+        const meta = metas?.[index] ?? resolveSidthieFromOption(opt);
+        if (meta) {
+          this.activeSidthie = meta;
+          try {
+            window.dispatchEvent(
+              new CustomEvent('sidthie:selected', {
+                detail: { sidthie: meta.key, sidthieLabel: meta.label },
+              })
+            );
+          } catch {
+            /* ignore dispatch errors */
+          }
+        }
         // When a user selects an option, record it and continue the conversation
         this.appendMessage({ role: 'user', content: opt });
         this.messages.push({ role: 'user', content: opt });
@@ -586,12 +694,24 @@ class BlessChatWidget {
     this.messages.push(message);
   }
 
-  private setStatus(text?: string) {
+  private setStatus(text?: string, typing = false) {
     if (text) {
-      this.statusEl.textContent = text;
+      if (typing) {
+        this.statusEl.innerHTML =
+          '<span class="bless-typing" aria-hidden="true"><span></span><span></span><span></span></span>';
+        this.statusEl.classList.add('is-typing');
+        this.statusEl.setAttribute('aria-label', text);
+      } else {
+        this.statusEl.textContent = text;
+        this.statusEl.classList.remove('is-typing');
+        this.statusEl.removeAttribute('aria-label');
+      }
       this.statusEl.hidden = false;
     } else {
       this.statusEl.hidden = true;
+      this.statusEl.classList.remove('is-typing');
+      this.statusEl.innerHTML = '';
+      this.statusEl.removeAttribute('aria-label');
     }
   }
 
@@ -613,9 +733,9 @@ class BlessChatWidget {
 
   private async fetchAssistantReply() {
     this.isProcessing = true;
-    this.sendBtn.disabled = true;
-    this.setError();
-    this.setStatus(this.options.loadingText);
+   this.sendBtn.disabled = true;
+   this.setError();
+    this.setStatus(this.options.loadingText, true);
 
     const controller = new AbortController();
 
@@ -653,6 +773,7 @@ class BlessChatWidget {
       this.setError(error?.message || 'Something went wrong. Please try again.');
       this.pushAssistantMessage('I could not continue the conversation. Let us try once more when you are ready.');
     } finally {
+      this.setStatus();
       this.isProcessing = false;
       this.sendBtn.disabled = false;
     }
@@ -739,30 +860,107 @@ class BlessChatWidget {
   private onAssistantComplete(text: string, done: boolean) {
     if (!text) return;
 
-    // If this was the final message, do not leave the blessing in the chat.
-    // Instead, remove the last assistant bubble, notify the user, and dispatch blessing:update.
     if (done) {
+      const prepared = this.prepareBlessing(text);
+      const blessing = prepared.blessing || prepared.raw || text.trim();
       this.blessingDelivered = true;
       setSessionFlag(SESSION_KEY, 'true');
-      // Remove the last assistant bubble (the full blessing)
+
       const last = this.messageList.lastElementChild;
       if (last && last.classList.contains('bless-chat-bubble')) {
         this.messageList.removeChild(last);
       }
-      revealBlessing(text);
-      // Dispatch to blessing reveal section
-      window.dispatchEvent(
-        new CustomEvent('blessing:update', {
-          detail: {
-            text,
-            done: true
-          }
-        })
-      );
-      // Show a short notice in the chat
+
+      this.displayBlessing(blessing);
       this.pushAssistantMessage('Your blessing has been created! Scroll down to read it.');
       return;
     }
+
+    if (/image|upload|photo|picture/i.test(text)) {
+      this.pushAssistantMessage('No image is needed. Let us continue in words.');
+    }
+  }
+
+  private prepareBlessing(raw: string) {
+    const cleaned = cleanAssistantText(raw);
+    const lines = cleaned
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const poem: string[] = [];
+    const extra: string[] = [];
+    for (const line of lines) {
+      if (poem.length < 5 && !/^is the blessing/i.test(line)) {
+        poem.push(line);
+      } else if (!/^is the blessing/i.test(line)) {
+        extra.push(line);
+      }
+    }
+
+    return {
+      blessing: poem.join('\n'),
+      extra,
+      raw: cleaned,
+    };
+  }
+
+  private displayBlessing(blessing: string) {
+    const meta = this.activeSidthie;
+    const detail = {
+      text: blessing,
+      blessing,
+      sidthie: meta?.key,
+      sidthieLabel: meta?.label,
+      explanation: meta?.short,
+    };
+
+    this.renderBlessingPanel(detail);
+    if (meta) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent('sidthie:selected', {
+            detail: { sidthie: meta.key, sidthieLabel: meta.label },
+          })
+        );
+      } catch {
+        /* ignore dispatch errors */
+      }
+    }
+    window.dispatchEvent(
+      new CustomEvent('blessing:update', {
+        detail,
+      })
+    );
+  }
+
+  private renderBlessingPanel(detail: {
+    blessing: string;
+    explanation?: string;
+    sidthieLabel?: string;
+  }) {
+    const segments = [detail.blessing];
+    if (detail.explanation) {
+      segments.push(detail.explanation);
+    }
+    const fallbackText = segments.join('\n\n').trim();
+
+    const sel = [
+      '[data-bless-panel]',
+      '.bless-blessing__panel',
+      '#bless-blessing__panel'
+    ].join(',');
+
+    document.querySelectorAll<HTMLElement>(sel).forEach((el) => {
+      el.style.fontFamily = "'Cormorant Upright', serif";
+      el.style.whiteSpace = 'pre-line';
+      el.style.textAlign = 'center';
+      el.style.color = '#fff';
+      el.style.fontSize = 'clamp(18px, 2.4vw, 30px)';
+      el.style.lineHeight = '1.35';
+      el.style.textShadow = '0 2px 8px rgba(0,0,0,.55)';
+      el.textContent = fallbackText;
+    });
   }
 }
 
