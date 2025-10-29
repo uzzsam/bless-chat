@@ -285,8 +285,8 @@ const STYLE_BLOCK = `
 }
 
 .bless-typing span {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: rgba(var(--bless-cream-100), 0.75);
   animation: bless-dot 900ms ease-in-out infinite alternate;
@@ -747,8 +747,6 @@ class BlessChatWidget {
         signal: controller.signal
       });
 
-      this.setStatus();
-
       if (!response.ok) {
         const data = await safeJson(response);
         throw new Error(data?.error || `Request failed with status ${response.status}`);
@@ -766,6 +764,7 @@ class BlessChatWidget {
           this.appendMessage({ role: 'assistant', content: payload });
           this.messages.push({ role: 'assistant', content: payload });
           this.onAssistantComplete(payload, done);
+          this.setStatus();
         }
       }
     } catch (error: any) {
@@ -939,27 +938,76 @@ class BlessChatWidget {
     explanation?: string;
     sidthieLabel?: string;
   }) {
-    const segments = [detail.blessing];
-    if (detail.explanation) {
-      segments.push(detail.explanation);
-    }
-    const fallbackText = segments.join('\n\n').trim();
-
     const sel = [
       '[data-bless-panel]',
       '.bless-blessing__panel',
       '#bless-blessing__panel'
     ].join(',');
 
-    document.querySelectorAll<HTMLElement>(sel).forEach((el) => {
-      el.style.fontFamily = "'Cormorant Upright', serif";
-      el.style.whiteSpace = 'pre-line';
-      el.style.textAlign = 'center';
-      el.style.color = '#fff';
-      el.style.fontSize = 'clamp(18px, 2.4vw, 30px)';
-      el.style.lineHeight = '1.35';
-      el.style.textShadow = '0 2px 8px rgba(0,0,0,.55)';
-      el.textContent = fallbackText;
+    document.querySelectorAll<HTMLElement>(sel).forEach((panel) => {
+      panel.style.fontFamily = "'Cormorant Upright', serif";
+      panel.style.whiteSpace = 'pre-line';
+      panel.style.textAlign = 'center';
+      panel.style.color = '#fff';
+      panel.style.fontSize = 'clamp(18px, 2.4vw, 30px)';
+      panel.style.lineHeight = '1.35';
+      panel.style.textShadow = '0 2px 8px rgba(0,0,0,.55)';
+
+      const content = panel.querySelector<HTMLElement>('[data-blessing-output]') || panel;
+      content.textContent = detail.blessing;
+      content.removeAttribute('hidden');
+
+      const meta = panel.querySelector<HTMLElement>('[data-blessing-meta]');
+      const metaTitle = panel.querySelector<HTMLElement>('[data-sidthie-title]');
+      const metaText = panel.querySelector<HTMLElement>('[data-sidthie-excerpt]');
+
+      if (meta) {
+        const hasLabel = Boolean(detail.sidthieLabel);
+        const hasExplanation = Boolean(detail.explanation);
+
+        if (metaTitle) {
+          if (hasLabel) {
+            metaTitle.textContent = detail.sidthieLabel!;
+            metaTitle.removeAttribute('hidden');
+          } else {
+            metaTitle.setAttribute('hidden', 'hidden');
+          }
+        }
+
+        if (metaText) {
+          if (hasExplanation) {
+            metaText.textContent = detail.explanation!;
+            metaText.removeAttribute('hidden');
+          } else {
+            metaText.setAttribute('hidden', 'hidden');
+          }
+        }
+
+        if (hasLabel || hasExplanation) {
+          meta.removeAttribute('hidden');
+        } else {
+          meta.setAttribute('hidden', 'hidden');
+        }
+      }
+
+      const signup = panel.querySelector<HTMLElement>('[data-blessing-signup]');
+      const signupPrompt = panel.querySelector<HTMLElement>('[data-signup-prompt]');
+      const signupInput = panel.querySelector<HTMLInputElement>('[data-signup-sidthie]');
+      const defaultPrompt = signupPrompt?.getAttribute('data-default-prompt') || signupPrompt?.textContent || '';
+
+      if (signup) {
+        if (signupPrompt) {
+          if (defaultPrompt.includes('{sidthie}')) {
+            signupPrompt.textContent = defaultPrompt.replace('{sidthie}', detail.sidthieLabel || 'your Sidthie');
+          } else if (detail.sidthieLabel) {
+            signupPrompt.textContent = `${defaultPrompt} (${detail.sidthieLabel})`;
+          }
+        }
+        if (signupInput) {
+          signupInput.value = detail.sidthieLabel || '';
+        }
+        signup.removeAttribute('hidden');
+      }
     });
   }
 }
