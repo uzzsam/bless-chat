@@ -323,6 +323,25 @@ function setSessionFlag(key: string, value: string) {
   }
 }
 
+function revealBlessing(blessing: string) {
+  const sel = [
+    '[data-bless-panel]',
+    '.bless-blessing__panel',
+    '#bless-blessing__panel'
+  ].join(',');
+
+  document.querySelectorAll<HTMLElement>(sel).forEach((el) => {
+    el.style.fontFamily = "'Cormorant Upright', serif";
+    el.style.whiteSpace = 'pre-line';
+    el.style.textAlign = 'center';
+    el.style.color = '#fff';
+    el.style.fontSize = 'clamp(18px, 2.4vw, 30px)';
+    el.style.lineHeight = '1.35';
+    el.style.textShadow = '0 2px 8px rgba(0,0,0,.55)';
+    el.textContent = blessing;
+  });
+}
+
 function parseSidthieOptions(payload: string | undefined | null) {
   if (!payload) return null;
   const processed = payload
