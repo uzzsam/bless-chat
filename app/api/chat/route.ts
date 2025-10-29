@@ -2,17 +2,22 @@
    Vercel Edge route: Responses API → NDJSON proxy (streaming)
    Adds a tiny server-side state machine for Sidthah flow.
 */
+import { createOpenAIClient, resolveModel, resolveVectorStoreId } from '@/lib/openai';
+
 export const runtime = 'edge';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
-const MODEL = (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim(); // env-driven, safe fallback
-const RAW_ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
+const MODEL = resolveModel();
+const RAW_ALLOWED_ORIGIN =
+  process.env.ALLOWED_ORIGINS ||
+  process.env.ALLOWED_ORIGIN ||
+  '*';
 const ALLOWED_ORIGINS = RAW_ALLOWED_ORIGIN
   .split(/[,\s]+/)
   .map(o => o.trim())
   .filter(Boolean);
 const ALLOW_ALL_ORIGINS = ALLOWED_ORIGINS.includes('*');
-const VECTOR_STORE_ID = (process.env.OPENAI_VECTOR_STORE_ID || '').trim();
+const VECTOR_STORE_ID = resolveVectorStoreId();
 
 /** Persona + guardrails kept short for first-token speed */
 const BASE_SYSTEM_PROMPT = `
@@ -233,42 +238,33 @@ export async function POST(req: Request) {
     ];
 
     for (const m of messages as Msg[]) {
-      const entry: any = { role: m.role, content: m.content };
-      // Attach vector store to USER messages only (if provided)
-      if (VECTOR_STORE_ID && m.role === 'user') {
-        entry.attachments = [{ vector_store_id: VECTOR_STORE_ID }];
-      }
-      input.push(entry);
+      input.push({ role: m.role, content: m.content });
     }
 
-    // Call OpenAI Responses API with streaming enabled (SSE)
-    const upstream = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        input,
-        stream: true,
-        // keep default text output; function/tool use not needed here
-      }),
-    });
+    const client = createOpenAIClient();
+    const tools = VECTOR_STORE_ID ? [{ type: 'file_search' as const }] : undefined;
+    const toolResources = VECTOR_STORE_ID
+      ? { file_search: { vector_store_ids: [VECTOR_STORE_ID] } }
+      : undefined;
 
-    if (!upstream.ok || !upstream.body) {
-      const err = await safeJson(upstream);
-      return jsonError(upstream.status, err?.error?.message || 'Upstream error', origin);
-    }
+    const request: any = {
+      model: MODEL,
+      input,
+    };
 
-    // Convert OpenAI SSE stream → NDJSON lines that the widget understands
-    const ndjsonStream = sseToNdjson(upstream.body, current.state);
+    if (tools) request.tools = tools;
+    if (toolResources) request.tool_resources = toolResources;
 
-    return new Response(ndjsonStream, {
+    const openAIStream = await client.responses.stream(request);
+
+    const sseStream = openAiStreamToSSE(openAIStream, current.state);
+
+    return new Response(sseStream, {
       status: 200,
       headers: {
-        'Content-Type': 'application/x-ndjson; charset=utf-8',
-        'Cache-Control': 'no-store',
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
         ...corsHeaders(origin),
       },
     });
@@ -286,112 +282,78 @@ function jsonError(status: number, message: string, origin?: string | null) {
   });
 }
 
-async function safeJson(r: Response) {
-  try {
-    return await r.clone().json();
-  } catch {
-    return null;
-  }
-}
+type OpenAIStream = AsyncIterable<any> & {
+  controller?: AbortController;
+  finalResponse: () => Promise<any>;
+};
 
-/**
- * OpenAI Responses API streams as SSE (event/data lines).
- * We repackage into NDJSON lines with types the widget already supports:
- *  - response.output_text.delta  { textDelta }
- *  - response.delta              { delta }          // generic future-proof
- *  - meta                        { done: boolean }
- *  - final                       { text, done }
- *  - error                       { message }
- *
- * If state === 'compose_blessing', we mark done=true on stream end,
- * so the widget dispatches `blessing:ready` and reveals the poem.
- */
-function sseToNdjson(readable: ReadableStream<Uint8Array>, state: State): ReadableStream<Uint8Array> {
+function openAiStreamToSSE(stream: OpenAIStream, state: State): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-
   let aggregated = '';
-  let finalText = '';
-  let doneFlag = false;
+  let doneSent = false;
 
   return new ReadableStream<Uint8Array>({
-    start(controller) {
-      const reader = readable.getReader();
-      let buffer = '';
-
-      const pushLine = (obj: any) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'));
-
-      const pump = async (): Promise<void> => {
-        try {
-          const { done, value } = await reader.read();
-          if (done) {
-            // If we were composing the blessing, signal done:true
-            const doneOut = state === 'compose_blessing' ? true : (doneFlag || true);
-            if (finalText || aggregated) {
-              // Strip trailing whitespace just in case
-              const out = (finalText || aggregated).trim();
-              pushLine({ type: 'final', text: out, done: doneOut });
-            } else {
-              pushLine({ type: 'meta', done: doneOut });
-            }
-            controller.close();
-            return;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-
-          // SSE frames separated by \n\n with "data:" lines (and sometimes "event:")
-          const frames = buffer.split('\n\n');
-          buffer = frames.pop() || '';
-
-          for (const frame of frames) {
-            const lines = frame.split('\n');
-            let dataLine = '';
-
-            for (const line of lines) {
-              if (line.startsWith('data:')) dataLine += line.slice(5).trim();
-            }
-
-            if (!dataLine) continue;
-            if (dataLine === '[DONE]') {
-              doneFlag = true;
-              continue;
-            }
-
-            let payload: any;
-            try {
-              payload = JSON.parse(dataLine);
-            } catch {
-              // Forward raw as generic delta
-              pushLine({ type: 'response.delta', delta: dataLine });
-              continue;
-            }
-
-            if (payload.type === 'response.output_text.delta' && typeof payload.text_delta === 'string') {
-              aggregated += payload.text_delta;
-              pushLine({ type: 'response.output_text.delta', textDelta: payload.text_delta });
-            } else if (payload.type === 'response.delta' && typeof payload.delta === 'string') {
-              aggregated += payload.delta;
-              pushLine({ type: 'response.delta', delta: payload.delta });
-            } else if (payload.type === 'response.completed' && typeof payload.response?.output_text === 'string') {
-              finalText = payload.response.output_text;
-            } else if (payload.type === 'response.completed' || payload.type === 'response.stop') {
-              doneFlag = true;
-            } else if (payload.error) {
-              pushLine({ type: 'error', message: String(payload.error?.message || 'Unknown error') });
-            }
-          }
-
-          // Flush meta updates periodically
-          pushLine({ type: 'meta', done: false });
-          pump();
-        } catch (e: any) {
-          controller.enqueue(encoder.encode(JSON.stringify({ type: 'error', message: e?.message || 'Stream error' }) + '\n'));
-          controller.close();
-        }
+    async start(controller) {
+      const send = (payload: any) => {
+        controller.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(payload)}\n\n`));
       };
 
-      pump();
+      send({ type: 'meta', state, done: false });
+
+      try {
+        for await (const event of stream) {
+          switch (event?.type) {
+            case 'response.output_text.delta': {
+              const delta = event.delta ?? '';
+              if (delta) aggregated += delta;
+              if (delta) send({ type: 'response.output_text.delta', textDelta: delta });
+              break;
+            }
+            case 'response.delta': {
+              const delta = event.delta;
+              if (typeof delta === 'string' && delta) {
+                aggregated += delta;
+                send({ type: 'response.delta', delta });
+              }
+              break;
+            }
+            case 'error':
+            case 'response.error': {
+              send({ type: 'error', message: String(event?.error?.message || 'Unknown error') });
+              break;
+            }
+            default:
+              break;
+          }
+        }
+
+        const final = await stream.finalResponse().catch(() => null);
+        const text =
+          final?.output_text ??
+          final?.output?.[0]?.content?.find((item: any) => item.type === 'output_text')?.text ??
+          aggregated;
+
+        if (typeof text === 'string' && text.trim()) {
+          const out = text.trim();
+          const done = state === 'compose_blessing';
+          send({ type: 'final', text: out, done });
+          send({ type: 'meta', done });
+          doneSent = true;
+        } else {
+          send({ type: 'meta', done: state === 'compose_blessing' });
+          doneSent = true;
+        }
+      } catch (error: any) {
+        send({ type: 'error', message: error?.message || 'Stream error' });
+      } finally {
+        if (!doneSent) {
+          send({ type: 'meta', done: state === 'compose_blessing' });
+        }
+        controller.close();
+      }
+    },
+    cancel(reason) {
+      stream.controller?.abort(reason);
     },
   });
 }

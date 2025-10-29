@@ -642,16 +642,28 @@ class BlessChatWidget {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n');
-      buffer = parts.pop() || '';
 
-      for (const part of parts) {
-        if (!part.trim()) continue;
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() || '';
+
+      for (const frame of frames) {
+        const lines = frame.split('\n');
+        let data = '';
+
+        for (const line of lines) {
+          if (line.startsWith('data:')) {
+            data += line.slice(5).trim();
+          }
+        }
+
+        if (!data) continue;
+        if (data === '[DONE]') continue;
+
         let payload: any;
         try {
-          payload = JSON.parse(part);
-        } catch (e) {
-          console.warn('Unable to parse stream chunk', part);
+          payload = JSON.parse(data);
+        } catch (error) {
+          console.warn('Unable to parse stream chunk', data);
           continue;
         }
 
@@ -665,7 +677,7 @@ class BlessChatWidget {
           aggregated += payload.delta;
           this.updateStreamingBubble(payload.delta);
         } else if (payload.type === 'response.completed' || payload.type === 'response.stop') {
-          // finalization handled later
+          // handled after the stream ends
         } else if (payload.type === 'meta' && typeof payload.done === 'boolean') {
           doneFlag = payload.done;
         } else if (payload.type === 'final' && typeof payload.text === 'string') {

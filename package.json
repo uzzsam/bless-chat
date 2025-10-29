@@ -7,7 +7,8 @@
     "build": "next build && npm run build:widget",
     "start": "next start",
     "build:widget": "node scripts/build-widget.mjs",
-    "dev:widget": "node scripts/build-widget.mjs --watch"
+    "dev:widget": "node scripts/build-widget.mjs --watch",
+    "verify:openai": "node scripts/verify-responses.mjs"
   },
   "dependencies": {
     "next": "^14.2.0",

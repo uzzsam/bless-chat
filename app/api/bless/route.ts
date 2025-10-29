@@ -1,3 +1,5 @@
+import { resolveModel, resolveVectorStoreId } from '@/lib/openai';
+
 export const runtime = 'edge';
 
 const corsHeaders = {
@@ -21,7 +23,7 @@ export async function POST(req: Request) {
     }
 
     const apiKey = process.env.OPENAI_API_KEY!;
-    const vectorStoreId = process.env.OPENAI_VECTOR_STORE_ID!;
+    const vectorStoreId = resolveVectorStoreId();
     if (!apiKey || !vectorStoreId) {
       return new Response(JSON.stringify({ error: 'Server misconfigured' }), { status: 500, headers: corsHeaders });
     }
@@ -31,15 +33,17 @@ export async function POST(req: Request) {
       "Warm, secular, grounded; personalise to the named recipient. " +
       "Use retrieved knowledge when useful. Output only the four lines.";
 
+    const model = resolveModel();
     const body = {
-      model: 'gpt-4o-mini',
+      model,
       input: [
         { role: 'system', content: system },
         { role: 'user', content: `Recipient: ${recipient}\nTask: Write a four-line blessing.` }
       ],
       temperature: 0.7,
       max_output_tokens: 180,
-      tools: [{ type: 'file_search', vector_store_ids: [vectorStoreId] }]
+      tools: [{ type: 'file_search' as const }],
+      tool_resources: { file_search: { vector_store_ids: [vectorStoreId] } }
     };
 
     const r = await fetch('https://api.openai.com/v1/responses', {
