@@ -165,8 +165,8 @@ function deriveState(messages: Msg[]): { state: State; name?: string; intentKey?
     return { state: 'ask_intent', name };
   }
 
-  // user chose an intent; after user provides context (3rd message) → compose
-  if (uCount >= 3) {
+  // user chose an intent; after the next user message (context) → compose
+  if (uCount >= 2) {
     return { state: 'compose_blessing', name, intentKey, intentLabel };
   }
 
