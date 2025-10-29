@@ -6,7 +6,12 @@ export const runtime = 'edge';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 const MODEL = (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim(); // env-driven, safe fallback
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
+const RAW_ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
+const ALLOWED_ORIGINS = RAW_ALLOWED_ORIGIN
+  .split(/[,\s]+/)
+  .map(o => o.trim())
+  .filter(Boolean);
+const ALLOW_ALL_ORIGINS = ALLOWED_ORIGINS.includes('*');
 const VECTOR_STORE_ID = (process.env.OPENAI_VECTOR_STORE_ID || '').trim();
 
 /** Persona + guardrails kept short for first-token speed */
@@ -35,16 +40,59 @@ type State = 'unknown' | 'ask_name' | 'ask_intent' | 'ask_context' | 'compose_bl
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+function normalizeOrigin(value: string) {
+  return value.replace(/\/+$/, '').toLowerCase();
+}
+
+function stripProtocol(value: string) {
+  return value.replace(/^https?:\/\//i, '');
+}
+
+function matchesAllowed(origin: string, allowed: string) {
+  if (allowed === '*') return true;
+
+  const normOrigin = normalizeOrigin(origin);
+  const normAllowed = normalizeOrigin(allowed);
+  if (normOrigin === normAllowed) return true;
+
+  const originHost = stripProtocol(normOrigin);
+  const allowedHost = stripProtocol(normAllowed);
+
+  if (allowedHost.startsWith('*.')) {
+    const suffix = allowedHost.slice(1); // keep leading dot
+    return originHost.endsWith(suffix);
+  }
+  return originHost === allowedHost;
+}
+
+function isOriginAllowed(origin: string | undefined) {
+  if (ALLOW_ALL_ORIGINS) return true;
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.some(allowed => matchesAllowed(origin, allowed));
+}
+
+function resolveCorsOrigin(origin: string | undefined) {
+  if (ALLOW_ALL_ORIGINS) return '*';
+  if (origin && isOriginAllowed(origin)) return origin;
+  // fall back to first configured origin to avoid empty header
+  return ALLOWED_ORIGINS[0] || '*';
+}
+
+function corsHeaders(origin?: string | null) {
+  const requestOrigin = origin ?? undefined;
+  const allowOrigin = resolveCorsOrigin(requestOrigin);
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
+  if (!ALLOW_ALL_ORIGINS) headers.Vary = 'Origin';
+  return headers;
 }
 
-export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: corsHeaders() });
+export async function OPTIONS(req: Request) {
+  const origin = req.headers.get('origin');
+  return new Response(null, { status: 204, headers: corsHeaders(origin) });
 }
 
 /* ---------------- State Machine Helpers ---------------- */
@@ -160,14 +208,19 @@ function buildControllerSystemMessage(current: ReturnType<typeof deriveState>) {
 /* ---------------- Route Handler ---------------- */
 
 export async function POST(req: Request) {
+  const origin = req.headers.get('origin');
   try {
     if (!OPENAI_API_KEY) {
-      return jsonError(500, 'Missing OPENAI_API_KEY');
+      return jsonError(500, 'Missing OPENAI_API_KEY', origin);
+    }
+
+    if (!isOriginAllowed(origin ?? undefined)) {
+      return jsonError(403, 'Origin not allowed', origin);
     }
 
     const { messages } = await req.json().catch(() => ({ messages: [] as Msg[] }));
     if (!Array.isArray(messages)) {
-      return jsonError(400, 'Body must contain { messages: Array<{role, content}> }');
+      return jsonError(400, 'Body must contain { messages: Array<{role, content}> }', origin);
     }
 
     // Derive state from the conversation so far
@@ -205,7 +258,7 @@ export async function POST(req: Request) {
 
     if (!upstream.ok || !upstream.body) {
       const err = await safeJson(upstream);
-      return jsonError(upstream.status, err?.error?.message || 'Upstream error');
+      return jsonError(upstream.status, err?.error?.message || 'Upstream error', origin);
     }
 
     // Convert OpenAI SSE stream → NDJSON lines that the widget understands
@@ -216,20 +269,20 @@ export async function POST(req: Request) {
       headers: {
         'Content-Type': 'application/x-ndjson; charset=utf-8',
         'Cache-Control': 'no-store',
-        ...corsHeaders(),
+        ...corsHeaders(origin),
       },
     });
   } catch (err: any) {
-    return jsonError(500, err?.message || 'Unhandled error');
+    return jsonError(500, err?.message || 'Unhandled error', origin);
   }
 }
 
 /** ---- helpers ---- **/
 
-function jsonError(status: number, message: string) {
+function jsonError(status: number, message: string, origin?: string | null) {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin ?? undefined) },
   });
 }
 
