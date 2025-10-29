@@ -30,8 +30,7 @@ The chatbot now calls the OpenAI **Responses API** with the **File Search** tool
 We assume the vector store already exists and is populated. The server simply reads `VECTOR_STORE_ID` and links it in each request:
 
 ```ts
-const tools = [{ type: 'file_search' }];
-const tool_resources = { file_search: { vector_store_ids: [vectorStoreId] } };
+const tools = [{ type: 'file_search', vector_store_ids: [vectorStoreId] }];
 ```
 
 No creation/migration logic runs at runtime—if the ID is missing, the API returns an explicit 500 (“Server misconfigured”).

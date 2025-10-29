@@ -28,8 +28,7 @@ async function main() {
       { role: 'system', content: 'You are a concise assistant for verifying connectivity.' },
       { role: 'user', content: prompt },
     ],
-    tools: [{ type: 'file_search' }],
-    tool_resources: { file_search: { vector_store_ids: [vectorStoreId] } },
+    tools: [{ type: 'file_search', vector_store_ids: [vectorStoreId] }],
   });
 
   process.stdout.write('Streaming response: ');

@@ -42,8 +42,7 @@ export async function POST(req: Request) {
       ],
       temperature: 0.7,
       max_output_tokens: 180,
-      tools: [{ type: 'file_search' as const }],
-      tool_resources: { file_search: { vector_store_ids: [vectorStoreId] } }
+      tools: [{ type: 'file_search' as const, vector_store_ids: [vectorStoreId] }],
     };
 
     const r = await fetch('https://api.openai.com/v1/responses', {

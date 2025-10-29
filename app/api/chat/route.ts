@@ -242,9 +242,8 @@ export async function POST(req: Request) {
     }
 
     const client = createOpenAIClient();
-    const tools = VECTOR_STORE_ID ? [{ type: 'file_search' as const }] : undefined;
-    const toolResources = VECTOR_STORE_ID
-      ? { file_search: { vector_store_ids: [VECTOR_STORE_ID] } }
+    const tools = VECTOR_STORE_ID
+      ? [{ type: 'file_search' as const, vector_store_ids: [VECTOR_STORE_ID] }]
       : undefined;
 
     const request: any = {
@@ -253,7 +252,6 @@ export async function POST(req: Request) {
     };
 
     if (tools) request.tools = tools;
-    if (toolResources) request.tool_resources = toolResources;
 
     const openAIStream = await client.responses.stream(request);
 
