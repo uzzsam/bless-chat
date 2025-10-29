@@ -323,6 +323,22 @@ function setSessionFlag(key: string, value: string) {
   }
 }
 
+function parseSidthieOptions(payload: string | undefined | null) {
+  if (!payload) return null;
+  const processed = payload
+    .replace(/([*\-•]?\s*)([1-7])[\.\)\:]\s*/g, '\n$2. ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  const lines = processed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const optionLines = lines.filter((line) => /^[1-7]\.\s*/.test(line));
+  if (optionLines.length < 7) return null;
+  const introLines = lines.filter((line) => !/^[1-7]\.\s*/.test(line));
+  const intro = introLines.join(' ').trim();
+  const options = optionLines.map((line) => line.replace(/^[1-7]\.\s*/, '').trim());
+  if (options.length < 7) return null;
+  return { intro, options };
+}
+
 class BlessChatWidget {
   private container: HTMLElement;
   private options: Required<WidgetOptions>;
@@ -458,16 +474,10 @@ class BlessChatWidget {
     // show buttons instead of plain text.  Insert newlines before numbers to catch
     // cases where the model outputs them in a single line.
     if (message.role === 'assistant' && !isStreaming) {
-      const processed = message.content.replace(/([1-7]\\.\\s*)/g, '\\n$1');
-      const lines = processed.split('\\n').map((l) => l.trim()).filter(Boolean);
-      const optionLines = lines.filter((line) => /^[1-7]\\.\\s*/.test(line));
-      if (optionLines.length >= 7) {
-        const introLines = lines.filter((line) => !/^[1-7]\\.\\s*/.test(line));
-        const intro = introLines.join(' ').trim();
-        const options = optionLines.map((line) => line.replace(/^[1-7]\\.\\s*/, '').trim());
-        // Record the assistant's message in the history so the API can see it
+      const parsed = parseSidthieOptions(message.content);
+      if (parsed) {
         this.messages.push({ role: 'assistant', content: message.content });
-        this.createOptionsBubble(options, intro);
+        this.createOptionsBubble(parsed.options, parsed.intro);
         return;
       }
     }
@@ -536,6 +546,14 @@ class BlessChatWidget {
 
   private finalizeStreamingBubble(finalText: string) {
     if (this.currentStreamingNode) {
+      const parsed = parseSidthieOptions(finalText);
+      if (parsed) {
+        this.messageList.removeChild(this.currentStreamingNode);
+        this.currentStreamingNode = null;
+        this.currentStreamingText = '';
+        this.createOptionsBubble(parsed.options, parsed.intro);
+        return;
+      }
       this.currentStreamingNode.textContent = finalText.trim();
     }
     this.currentStreamingNode = null;
@@ -712,6 +730,7 @@ class BlessChatWidget {
       if (last && last.classList.contains('bless-chat-bubble')) {
         this.messageList.removeChild(last);
       }
+      revealBlessing(text);
       // Dispatch to blessing reveal section
       window.dispatchEvent(
         new CustomEvent('blessing:update', {

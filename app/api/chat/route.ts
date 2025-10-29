@@ -200,7 +200,7 @@ function buildControllerSystemMessage(current: ReturnType<typeof deriveState>) {
   lines.push('- Follow the state actions EXACTLY. No extra questions.');
   lines.push('');
   lines.push('ACTIONS BY STATE:');
-  lines.push('ask_name → Say: "I am Sidthah, ..." then a blank line, then "Would you share your name?" (and nothing else).');
+  lines.push('ask_name → Offer 1–2 gentle sentences in Sidthah’s voice. Introduce yourself as Sidthah, welcome the guest, and kindly invite them to share their first name (make clear it is optional).');
   lines.push('ask_intent → Say: `As you breathe, notice what feels most present today, {name}.` then list exactly these seven options on separate numbered lines (1..7) so the UI renders them as buttons:');
   lines.push(numberedSidthieList());
   lines.push('ask_context → Briefly (1 sentence) reflect the chosen Sidthie in plain words, then a blank line, then: "Is the blessing for yourself or someone else? When you think of your Sidthie and the blessing, what feels most present at this moment?"');
