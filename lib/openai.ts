@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 
 /**
- * Create a configured OpenAI client using the current environment key.
+ * Create a configured OpenAI client using the current environment key. bless-chat/lib/openai.ts
  */
 export function createOpenAIClient() {
   const apiKey = process.env.OPENAI_API_KEY;
