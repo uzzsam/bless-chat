@@ -22,6 +22,7 @@ const VECTOR_STORE_ID = resolveVectorStoreId();
 /** Persona + guardrails kept short for first-token speed */
 const BASE_SYSTEM_PROMPT = `
 You are *Sidthah*, a gentle, grounded guide. Keep messages short, warm, clear.
+Weave language that feels mystical and handcrafted; draw on retrieved Sidthie knowledge to stay specific.
 Never ask for images or files. Do not repeat yourself. Avoid headings.
 When asked to compose a blessing, output EXACTLY 5 lines (no title, no extra text).
 `.trim();
@@ -44,6 +45,11 @@ const SIDTHIE_LABELS = new Set(SIDTHIES.map(s => s.label.toLowerCase()));
 type State = 'unknown' | 'ask_name' | 'ask_intent' | 'ask_context' | 'compose_blessing';
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
+
+type ContextStatus = {
+  recipientAnswered: boolean;
+  feelingAnswered: boolean;
+};
 
 function normalizeOrigin(value: string) {
   return value.replace(/\/+$/, '').toLowerCase();
@@ -147,13 +153,95 @@ function countUserMessages(messages: Msg[]): number {
   return messages.filter(m => m.role === 'user').length;
 }
 
+const RECIPIENT_PATTERNS = [
+  /\bfor\s+(?:my|our|his|her|their|the|a|an)\b/i,
+  /\bfor\s+(?:mom|mum|mother|dad|father|son|daughter|child|children|friend|partner|wife|husband|sister|brother|family|team)\b/i,
+  /\bfor\s+(?:someone|somebody|anyone|another|others)\b/i,
+  /\bfor\s+me\b/i,
+  /\bfor\s+us\b/i,
+  /\bfor\s+myself\b/i,
+  /\bmyself\b/i,
+  /\bsomeone else\b/i,
+  /\bfor them\b/i,
+];
+
+const FEELING_KEYWORDS = [
+  'feel',
+  'feels',
+  'feeling',
+  'emotion',
+  'present',
+  'heart',
+  'hearts',
+  'courage',
+  'peace',
+  'calm',
+  'love',
+  'healing',
+  'strength',
+  'grounded',
+  'hope',
+  'gentle',
+  'support',
+  'ease',
+  'soft',
+  'comfort',
+  'grace',
+  'worry',
+  'anxious',
+  'fear',
+  'joy',
+  'grateful',
+  'gratitude',
+  'clarity',
+  'ready',
+  'longing',
+  'need',
+  'needs',
+  'seeking',
+  'inviting',
+  'release',
+  'tension',
+  'rest',
+];
+
+function analyzeContext(messages: Msg[]): ContextStatus {
+  let recipientAnswered = false;
+  let feelingAnswered = false;
+
+  for (const message of messages) {
+    if (message.role !== 'user') continue;
+    const text = message.content.toLowerCase();
+
+    if (!recipientAnswered) {
+      recipientAnswered = RECIPIENT_PATTERNS.some(pattern => pattern.test(text));
+    }
+
+    if (!feelingAnswered) {
+      feelingAnswered =
+        FEELING_KEYWORDS.some(keyword => text.includes(keyword)) ||
+        text.split(/\s+/).length >= 12;
+    }
+
+    if (recipientAnswered && feelingAnswered) break;
+  }
+
+  return { recipientAnswered, feelingAnswered };
+}
+
 /** Derive state:
  * 0 user msgs → ask_name
  * 1 user msg (name) but no intent → ask_intent
  * After user chooses intent → ask_context
  * After another user msg (context) → compose_blessing
  */
-function deriveState(messages: Msg[]): { state: State; name?: string; intentKey?: string; intentLabel?: string } {
+function deriveState(messages: Msg[]): {
+  state: State;
+  name?: string;
+  intentKey?: string;
+  intentLabel?: string;
+  contextStatus?: ContextStatus;
+} {
   const uCount = countUserMessages(messages);
   if (uCount <= 0) return { state: 'ask_name' };
 
@@ -165,13 +253,19 @@ function deriveState(messages: Msg[]): { state: State; name?: string; intentKey?
     return { state: 'ask_intent', name };
   }
 
-  // user chose an intent; after the next user message (context) → compose
-  if (uCount >= 2) {
-    return { state: 'compose_blessing', name, intentKey, intentLabel };
+  const contextStatus = analyzeContext(messages);
+  const allContextProvided = contextStatus.recipientAnswered && contextStatus.feelingAnswered;
+
+  if (!allContextProvided) {
+    return { state: 'ask_context', name, intentKey, intentLabel, contextStatus };
   }
 
-  // otherwise prompt for context
-  return { state: 'ask_context', name, intentKey, intentLabel };
+  if (uCount >= 3) {
+    return { state: 'compose_blessing', name, intentKey, intentLabel, contextStatus };
+  }
+
+  // If both answers are already captured but the conversation is still short, err on composing.
+  return { state: 'compose_blessing', name, intentKey, intentLabel, contextStatus };
 }
 
 function sidthieShort(key?: string): string {
@@ -194,17 +288,26 @@ function buildControllerSystemMessage(current: ReturnType<typeof deriveState>) {
   if (current.name) lines.push(`USER_NAME: ${current.name}`);
   if (current.intentKey) lines.push(`SIDTHIE_KEY: ${current.intentKey}`);
   if (current.intentLabel) lines.push(`SIDTHIE_LABEL: ${current.intentLabel}`);
+  if (current.contextStatus) {
+    lines.push(`CONTEXT_RECIPIENT_ANSWERED: ${current.contextStatus.recipientAnswered ? 'yes' : 'no'}`);
+    lines.push(`CONTEXT_FEELING_ANSWERED: ${current.contextStatus.feelingAnswered ? 'yes' : 'no'}`);
+  }
   lines.push('');
   lines.push('RULES:');
   lines.push('- Reply briefly in Sidthah style; never ask for or mention images/files.');
   lines.push('- Do not add headings. Keep friendly and calm.');
   lines.push('- Follow the state actions EXACTLY. No extra questions.');
+  lines.push('- Keep phrasing fresh; do not reuse earlier sentences verbatim.');
   lines.push('');
   lines.push('ACTIONS BY STATE:');
-  lines.push('ask_name → Offer 1–2 gentle sentences in Sidthah’s voice. Introduce yourself as Sidthah, welcome the guest, and kindly invite them to share their first name (make clear it is optional).');
-  lines.push('ask_intent → Say: `As you breathe, notice what feels most present today, {name}.` then list exactly these seven options on separate numbered lines (1..7) so the UI renders them as buttons:');
+  lines.push('ask_name → Craft a warm, mystical welcome in Sidthah’s voice. Introduce yourself as Sidthah, speak of a space of wisdom/reflection, and invite the guest to share their first name so you may address them personally—explicitly include the phrase "If you feel comfortable," before the invitation.');
+  lines.push('ask_intent → Begin with one or two gentle sentences inviting {name} to select the Sidthie whose intent aligns with what their heart is ready to receive, drawing on Sidthie lore when possible. Then list exactly these seven options on separate numbered lines (1..7) so the UI renders them as buttons:');
   lines.push(numberedSidthieList());
-  lines.push('ask_context → Briefly (1 sentence) reflect the chosen Sidthie in plain words, then a blank line, then: "Is the blessing for yourself or someone else? When you think of your Sidthie and the blessing, what feels most present at this moment?"');
+  lines.push('ask_context → Offer one luminous, mystical sentence that reflects the chosen Sidthie and expands on its feeling (no shorter than 14 words), referencing retrieved knowledge when available. Then include a blank line.');
+  lines.push('- If CONTEXT_RECIPIENT_ANSWERED is "no", ask: "Is the blessing for yourself or someone else?"');
+  lines.push('- If CONTEXT_FEELING_ANSWERED is "no", ask: "When you think of your Sidthie and the blessing, what feels most present at this moment?"');
+  lines.push('- If either answer is already provided (status "yes"), acknowledge it briefly and do NOT repeat that question.');
+  lines.push('- If both answers are already provided, acknowledge them gently and move directly toward composing the blessing.');
   lines.push('compose_blessing → Output ONLY the 5-line blessing, no titles, no preface, no afterword. Exactly 5 lines. Each line ≤ ~80 characters. Then stop.');
   lines.push('');
   lines.push('IMPORTANT: If CURRENT_STATE is compose_blessing, do not ask any further questions.');
@@ -256,7 +359,7 @@ export async function POST(req: Request) {
 
     const openAIStream = await client.responses.stream(request);
 
-    const sseStream = openAiStreamToSSE(openAIStream, current.state);
+    const sseStream = openAiStreamToSSE(openAIStream, current.state, current.intentKey);
 
     return new Response(sseStream, {
       status: 200,
@@ -286,10 +389,10 @@ type OpenAIStream = AsyncIterable<any> & {
   finalResponse: () => Promise<any>;
 };
 
-function openAiStreamToSSE(stream: OpenAIStream, state: State): ReadableStream<Uint8Array> {
+function openAiStreamToSSE(stream: OpenAIStream, state: State, sidthieKey?: string): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let aggregated = '';
-  let doneSent = false;
+  let emittedDelta = false;
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -303,16 +406,20 @@ function openAiStreamToSSE(stream: OpenAIStream, state: State): ReadableStream<U
         for await (const event of stream) {
           switch (event?.type) {
             case 'response.output_text.delta': {
-              const delta = event.delta ?? '';
-              if (delta) aggregated += delta;
-              if (delta) send({ type: 'response.output_text.delta', textDelta: delta });
+              const delta = event?.delta ?? event?.text_delta ?? '';
+              if (delta) {
+                aggregated += delta;
+                emittedDelta = true;
+                send({ type: 'delta', textDelta: delta });
+              }
               break;
             }
             case 'response.delta': {
-              const delta = event.delta;
+              const delta = event?.delta;
               if (typeof delta === 'string' && delta) {
                 aggregated += delta;
-                send({ type: 'response.delta', delta });
+                emittedDelta = true;
+                send({ type: 'delta', textDelta: delta });
               }
               break;
             }
@@ -332,22 +439,19 @@ function openAiStreamToSSE(stream: OpenAIStream, state: State): ReadableStream<U
           final?.output?.[0]?.content?.find((item: any) => item.type === 'output_text')?.text ??
           aggregated;
 
-        if (typeof text === 'string' && text.trim()) {
+        if (!emittedDelta && typeof text === 'string') {
           const out = text.trim();
-          const done = state === 'compose_blessing';
-          send({ type: 'final', text: out, done });
-          send({ type: 'meta', done });
-          doneSent = true;
-        } else {
-          send({ type: 'meta', done: state === 'compose_blessing' });
-          doneSent = true;
+          if (out) {
+            aggregated = out;
+            emittedDelta = true;
+            send({ type: 'delta', textDelta: out });
+          }
         }
+
+        send({ type: 'done', meta: { state, sidthieKey: sidthieKey ?? null } });
       } catch (error: any) {
         send({ type: 'error', message: error?.message || 'Stream error' });
       } finally {
-        if (!doneSent) {
-          send({ type: 'meta', done: state === 'compose_blessing' });
-        }
         controller.close();
       }
     },

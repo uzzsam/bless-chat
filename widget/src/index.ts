@@ -35,6 +35,15 @@ function sanitizeString(value?: string | null): string | undefined {
   return trimmed;
 }
 
+function parseBooleanDataset(value?: string | null): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  const normalized = value.toString().trim().toLowerCase();
+  if (!normalized) return true;
+  if (['false', '0', 'no', 'off', 'disabled'].includes(normalized)) return false;
+  if (['true', '1', 'yes', 'on', 'enabled'].includes(normalized)) return true;
+  return undefined;
+}
+
 // Base styles for the chat widget.  Additional styles for option buttons are appended below.
 const STYLE_BLOCK = `
 :root {
@@ -42,10 +51,13 @@ const STYLE_BLOCK = `
   --bless-green-500: 70, 136, 111;
   --bless-gold-400: 227, 216, 154;
   --bless-cream-100: 236, 227, 214;
+  --bless-chat-max-width: 820px;
+  --bless-chat-radius: 48px;
 }
 
 .bless-chat-shell {
-  width: min(820px, 92vw);
+  width: 100%;
+  max-width: min(var(--bless-chat-max-width), 92vw);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -60,7 +72,7 @@ const STYLE_BLOCK = `
   flex-direction: column;
   gap: 1.1rem;
   padding: clamp(1.75rem, 3vw, 2.4rem) clamp(1.5rem, 3vw, 2.8rem);
-  border-radius: 48px;
+  border-radius: var(--bless-chat-radius);
   background: linear-gradient(135deg, rgba(20,62,48,0.78), rgba(27,73,58,0.6));
   box-shadow: 0 26px 70px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(18px);
@@ -72,7 +84,7 @@ const STYLE_BLOCK = `
   content: '';
   position: absolute;
   inset: 12px;
-  border-radius: 36px;
+  border-radius: calc(var(--bless-chat-radius) - 12px);
   border: 1px solid rgba(255,255,255,0.12);
   pointer-events: none;
   opacity: 0.6;
@@ -109,6 +121,7 @@ const STYLE_BLOCK = `
   line-height: 1.6;
   /* Align all message text to the left for improved readability */
   text-align: left;
+  white-space: pre-line;
 }
 
 .bless-chat-bubble--user {
@@ -252,18 +265,18 @@ const STYLE_BLOCK = `
 .bless-chat-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 0.9rem;
+  gap: 0.6rem 0.75rem;
 }
 
 .bless-chat-option {
   display: block;
-  padding: 1.1rem clamp(1.4rem, 3.2vw, 2.3rem);
-  border-radius: 42px;
+  padding: 0.85rem clamp(1.2rem, 2.6vw, 1.9rem);
+  border-radius: 32px;
   background: rgba(19, 63, 52, 0.72);
   border: 1px solid rgba(var(--bless-gold-400), 0.4);
   color: rgba(var(--bless-cream-100), 0.96);
-  font-size: clamp(0.98rem, 0.8vw + 0.9rem, 1.15rem);
-  line-height: 1.55;
+  font-size: clamp(0.92rem, 0.7vw + 0.82rem, 1.05rem);
+  line-height: 1.45;
   cursor: pointer;
   text-align: center;
 }
@@ -507,6 +520,7 @@ class BlessChatWidget {
   private currentStreamingNode: HTMLDivElement | null = null;
   private currentStreamingText = '';
   private activeSidthie: SidthieMeta | null = null;
+  private lastExplanation = '';
 
   constructor(container: HTMLElement, options?: WidgetOptions) {
     this.container = container;
@@ -519,9 +533,22 @@ class BlessChatWidget {
       requireBlessing: merged.requireBlessing
     };
     this.blessingDelivered = getSessionFlag(SESSION_KEY) === 'true';
+    if (!this.options.requireBlessing && this.blessingDelivered) {
+      // When blessings are not required, treat the session as fresh.
+      this.blessingDelivered = false;
+    }
   }
 
   mount() {
+    const widthAttr = sanitizeString(this.container.dataset.chatWidth);
+    if (widthAttr) {
+      this.container.style.setProperty('--bless-chat-max-width', widthAttr);
+    }
+    const radiusAttr = sanitizeString(this.container.dataset.chatRadius);
+    if (radiusAttr) {
+      this.container.style.setProperty('--bless-chat-radius', radiusAttr);
+    }
+
     this.container.innerHTML = '';
     this.container.classList.add('bless-chat-shell');
 
@@ -586,15 +613,19 @@ class BlessChatWidget {
       }
     });
 
-    if (this.blessingDelivered) {
+    if (this.blessingDelivered && this.options.requireBlessing) {
       this.pushAssistantMessage('Your blessing has already been crafted. Scroll to revisit it below.');
     } else {
+      if (!this.options.requireBlessing) {
+        setSessionFlag(SESSION_KEY, 'false');
+      }
       this.startConversation();
     }
   }
 
   private async startConversation() {
     this.activeSidthie = null;
+    this.lastExplanation = '';
     await this.fetchAssistantReply();
   }
 
@@ -629,6 +660,7 @@ class BlessChatWidget {
     // show buttons instead of plain text.  Insert newlines before numbers to catch
     // cases where the model outputs them in a single line.
     if (message.role === 'assistant' && !isStreaming) {
+      this.captureExplanation(message.content);
       const parsed = parseSidthieOptions(message.content);
       if (parsed) {
         this.messages.push({ role: 'assistant', content: message.content });
@@ -651,6 +683,17 @@ class BlessChatWidget {
       this.currentStreamingNode = bubble;
       this.currentStreamingText = message.content;
     }
+  }
+
+  private captureExplanation(text?: string) {
+    if (!text) return;
+    const QUESTION = 'Is the blessing for yourself or someone else? When you think of your Sidthie and the blessing, what feels most present at this moment?';
+    const idx = text.indexOf(QUESTION);
+    if (idx === -1) return;
+    const before = text.slice(0, idx).trim();
+    if (!before) return;
+    const paragraph = before.split(/\n\s*\n/)[0]?.trim();
+    if (paragraph) this.lastExplanation = paragraph;
   }
 
   /**
@@ -830,8 +873,8 @@ class BlessChatWidget {
     }
 
     let doneFlag = false;
-    let finalText = '';
     let aggregated = '';
+    let finalMeta: { state?: string; sidthieKey?: string | null } | null = null;
 
     this.appendMessage({ role: 'assistant', content: '' }, true);
 
@@ -867,39 +910,29 @@ class BlessChatWidget {
           continue;
         }
 
-        if (payload.type === 'response.delta' && typeof payload.delta === 'string') {
-          aggregated += payload.delta;
-          this.updateStreamingBubble(payload.delta);
-        } else if (payload.type === 'response.output_text.delta' && typeof payload.textDelta === 'string') {
+        if (payload.type === 'delta' && typeof payload.textDelta === 'string') {
           aggregated += payload.textDelta;
           this.updateStreamingBubble(payload.textDelta);
-        } else if (payload.type === 'response.message.delta' && typeof payload.delta === 'string') {
-          aggregated += payload.delta;
-          this.updateStreamingBubble(payload.delta);
-        } else if (payload.type === 'response.completed' || payload.type === 'response.stop') {
-          // handled after the stream ends
+        } else if (payload.type === 'done') {
+          finalMeta = payload.meta || null;
+          doneFlag = finalMeta?.state === 'compose_blessing';
         } else if (payload.type === 'meta' && typeof payload.done === 'boolean') {
           doneFlag = payload.done;
-        } else if (payload.type === 'final' && typeof payload.text === 'string') {
-          finalText = payload.text;
-          if (typeof payload.done === 'boolean') {
-            doneFlag = payload.done;
-          }
         } else if (payload.type === 'error') {
           throw new Error(payload.message || 'Unexpected error');
         }
       }
     }
 
-    const resolved = (finalText || aggregated).trim();
+    const resolved = aggregated.trim();
     const cleaned = cleanAssistantText(resolved);
     const output = cleaned || resolved;
     this.finalizeStreamingBubble(output);
     this.messages.push({ role: 'assistant', content: output });
-    this.onAssistantComplete(output, doneFlag);
+    this.onAssistantComplete(output, doneFlag, finalMeta || undefined);
   }
 
-  private onAssistantComplete(text: string, done: boolean) {
+  private onAssistantComplete(text: string, done: boolean, finalMeta?: { state?: string; sidthieKey?: string | null }) {
     if (!text) return;
 
     if (done) {
@@ -913,8 +946,23 @@ class BlessChatWidget {
         this.messageList.removeChild(last);
       }
 
-      this.displayBlessing(blessing);
-      this.pushAssistantMessage('Your blessing has been created! Scroll down to read it.');
+      this.displayBlessing(blessing, finalMeta);
+      const active = this.activeSidthie;
+      const rawFeeling = (this.lastExplanation || '').replace(/\s+$/, '');
+      const feelingSnippet = rawFeeling.split(/[.!?]/).map(part => part.trim()).filter(Boolean)[0] || '';
+      const closingParts: string[] = [];
+      if (active) {
+        closingParts.push(`The blessing of ${active.label} is woven around you now.`);
+      } else {
+        closingParts.push('Your blessing is woven around you now.');
+      }
+      if (feelingSnippet) {
+        const feelingPhrase = feelingSnippet.charAt(0).toLowerCase() + feelingSnippet.slice(1);
+        closingParts.push(`Hold close this sense of ${feelingPhrase} as you receive it below.`);
+      } else {
+        closingParts.push('Follow the glow below to receive it.');
+      }
+      this.pushAssistantMessage(closingParts.join(' '));
       return;
     }
 
@@ -947,17 +995,30 @@ class BlessChatWidget {
     };
   }
 
-  private displayBlessing(blessing: string) {
-    const meta = this.activeSidthie;
+  private displayBlessing(blessing: string, finalMeta?: { state?: string; sidthieKey?: string | null }) {
+    let meta = this.activeSidthie;
+    if (!meta && finalMeta?.sidthieKey) {
+      meta = findSidthieByKey(finalMeta.sidthieKey);
+      if (meta) this.activeSidthie = meta;
+    }
+
+    const explanation = this.lastExplanation || meta?.description || meta?.short || '';
+
+    try {
+      revealBlessing(blessing);
+    } catch {
+      /* ignore reveal errors */
+    }
+
     const detail = {
       text: blessing,
       blessing,
-      sidthie: meta?.key,
-      sidthieLabel: meta?.label,
-      explanation: meta?.description || meta?.short,
+      sidthie: meta?.key || null,
+      sidthieLabel: meta?.label || null,
+      explanation,
     };
 
-    this.renderBlessingPanel(detail);
+    this.renderBlessingPanel({ blessing, explanation, sidthieLabel: detail.sidthieLabel ?? undefined });
     if (meta) {
       try {
         window.dispatchEvent(
@@ -969,11 +1030,9 @@ class BlessChatWidget {
         /* ignore dispatch errors */
       }
     }
-    window.dispatchEvent(
-      new CustomEvent('blessing:update', {
-        detail,
-      })
-    );
+    window.dispatchEvent(new CustomEvent('blessing:ready', { detail }));
+    window.dispatchEvent(new CustomEvent('blessing:update', { detail }));
+
   }
 
   private renderBlessingPanel(detail: {
@@ -1068,14 +1127,16 @@ function isStreamResponse(response: Response) {
 }
 
 function resolveContainerConfig(element: HTMLElement): WidgetOptions {
+  const config: WidgetOptions = {};
   const api = sanitizeString(element.dataset.apiUrl);
+  if (api) config.apiUrl = api;
   const placeholder = sanitizeString(element.dataset.placeholder);
+  if (placeholder) config.placeholder = placeholder;
   const loading = sanitizeString(element.dataset.loadingText);
-  return {
-    apiUrl: api,
-    placeholder,
-    loadingText: loading
-  };
+  if (loading) config.loadingText = loading;
+  const requireBlessing = parseBooleanDataset(element.dataset.requireBlessing);
+  if (typeof requireBlessing === 'boolean') config.requireBlessing = requireBlessing;
+  return config;
 }
 
 function mount(selector?: string, options?: WidgetOptions) {
