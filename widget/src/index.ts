@@ -338,6 +338,7 @@ interface SidthieMeta {
   description: string;
 }
 
+// Around line 177, update the SIDTHIE_META object:
 const SIDTHIE_META: Record<string, SidthieMeta> = {
   NALAMERA: {
     key: 'NALAMERA',
@@ -362,31 +363,31 @@ const SIDTHIE_META: Record<string, SidthieMeta> = {
   },
   NIRALUMA: {
     key: 'NIRALUMA',
-    label: 'Wisdom',
+    label: 'Bliss',
     short: 'A calm clarity that sees the path with kindness.',
     description:
-      'Niraluma pours lantern-light across the path ahead, offering gentle insight and elder grace to every decision you make.',
-  },
-  RAKAWELA: {
-    key: 'RAKAWELA',
-    label: 'Protection',
-    short: 'A gentle guard that shelters what is precious.',
-    description:
-      'Rakawela stands as a quiet guardian, wrapping loved ones in vigilant kindness and turning away every shadow that approaches.',
+      'Niraluma pours lantern-light across the path ahead, offering gentle bliss and serene grace to every decision you make.',
   },
   OLANWELA: {
     key: 'OLANWELA',
-    label: 'Healing',
+    label: 'Health',
     short: 'A quiet mending that restores balance and breath.',
     description:
-      'Olanwela soothes weary hearts and tired bones, bathing the spirit in cool rivers of renewal and compassionate rest.',
+      'Olanwela soothes weary hearts and tired bones, bathing the spirit in cool rivers of renewal and vital health.',
+  },
+  RAKAWELA: {
+    key: 'RAKAWELA',
+    label: 'Peace',
+    short: 'A gentle guard that shelters what is precious.',
+    description:
+      'Rakawela stands as a quiet guardian, wrapping loved ones in peaceful kindness and turning away every shadow that approaches.',
   },
   MORASARA: {
     key: 'MORASARA',
-    label: 'Peace',
+    label: 'Fortune',
     short: 'A stillness that settles and softens the heart.',
     description:
-      'Morasara settles like evening mist, inviting deep breaths, calm conversations, and the promise of belonging wherever you stand.',
+      'Morasara settles like evening mist, inviting deep breaths, calm conversations, and the promise of good fortune wherever you stand.',
   },
 };
 
