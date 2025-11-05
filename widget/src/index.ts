@@ -73,10 +73,10 @@ const STYLE_BLOCK = `
   gap: 1.1rem;
   padding: clamp(1.75rem, 3vw, 2.4rem) clamp(1.5rem, 3vw, 2.8rem);
   border-radius: var(--bless-chat-radius);
-  background: linear-gradient(135deg, rgba(20,62,48,0.78), rgba(27,73,58,0.6));
-  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(18px);
-  border: 1px solid rgba(var(--bless-gold-400), 0.38);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.18);
   overflow: hidden;
 }
 
@@ -112,10 +112,10 @@ const STYLE_BLOCK = `
   position: relative;
   padding: 1.65rem clamp(1.6rem, 3.8vw, 2.6rem);
   border-radius: 42px;
-  background: rgba(19, 63, 52, 0.72);
-  border: 1px solid rgba(var(--bless-gold-400), 0.4);
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(14px);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: none;
+  backdrop-filter: blur(4px);
   color: rgba(var(--bless-cream-100), 0.96);
   font-size: clamp(1.02rem, 1vw + 0.9rem, 1.2rem);
   line-height: 1.6;
@@ -126,17 +126,17 @@ const STYLE_BLOCK = `
 
 .bless-chat-bubble--user {
   align-self: flex-end;
-  background: linear-gradient(120deg, rgba(28,88,70,0.6), rgba(22,65,52,0.7));
-  border: 1px solid rgba(var(--bless-green-500), 0.6);
-  color: rgba(var(--bless-cream-100), 0.9);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.28);
+  color: rgba(var(--bless-cream-100), 0.92);
 }
 
 .bless-chat-bubble--status {
   text-align: center;
   font-size: 0.95rem;
   color: rgba(var(--bless-cream-100), 0.65);
-  background: rgba(15, 48, 39, 0.4);
-  border: 1px solid rgba(var(--bless-green-500), 0.35);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.16);
 }
 
 .bless-chat-input-row {
@@ -150,10 +150,10 @@ const STYLE_BLOCK = `
   display: flex;
   align-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(var(--bless-green-500), 0.55);
-  background: linear-gradient(120deg, rgba(21,65,53,0.78), rgba(15,52,41,0.74));
+  border: 1px solid rgba(255,255,255,0.22);
+  background: transparent;
   padding: 0.4rem 0.4rem 0.4rem 1.4rem;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  box-shadow: none;
 }
 
 .bless-chat-input {
@@ -272,18 +272,20 @@ const STYLE_BLOCK = `
   display: block;
   padding: 0.85rem clamp(1.2rem, 2.6vw, 1.9rem);
   border-radius: 32px;
-  background: rgba(19, 63, 52, 0.72);
-  border: 1px solid rgba(var(--bless-gold-400), 0.4);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.24);
   color: rgba(var(--bless-cream-100), 0.96);
   font-size: clamp(0.92rem, 0.7vw + 0.82rem, 1.05rem);
   line-height: 1.45;
   cursor: pointer;
   text-align: center;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
 }
 
 .bless-chat-option:hover,
 .bless-chat-option:focus {
-  background: rgba(19, 63, 52, 0.85);
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.35);
 }
 
 .bless-chat-bubble--status.is-typing {
