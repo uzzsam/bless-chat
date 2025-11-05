@@ -1,8 +1,22 @@
 /* app/api/chat/route.ts
-   Vercel Edge route: Responses API → NDJSON proxy (streaming)
-   Adds a tiny server-side state machine for Sidthah flow.
+   Vercel Edge route: Responses API → SSE streaming
+   Optimized with explicit state tracking, tiered vector search, and email capture
 */
 import { createOpenAIClient, resolveModel, resolveVectorStoreId } from '@/lib/openai';
+import { buildSystemMessage, BASE_PERSONA_PROMPT } from '@/lib/prompts';
+import { 
+  SIDTHIES,
+  SIDTHIE_KEYS, 
+  SIDTHIE_LABELS,
+  findSidthieByKey,
+  findSidthieByLabel,
+  getRandomVariation, 
+  injectVariables,
+  GREETING_VARIATIONS,
+  NAME_REQUEST_VARIATIONS,
+  SIDTHIE_SELECTION_VARIATIONS,
+  CONTEXT_QUESTION_VARIATIONS
+} from '@/lib/sidthies';
 
 export const runtime = 'edge';
 
@@ -19,38 +33,46 @@ const ALLOWED_ORIGINS = RAW_ALLOWED_ORIGIN
 const ALLOW_ALL_ORIGINS = ALLOWED_ORIGINS.includes('*');
 const VECTOR_STORE_ID = resolveVectorStoreId();
 
-/** Persona + guardrails kept short for first-token speed */
-const BASE_SYSTEM_PROMPT = `
-You are *Sidthah*, a gentle, grounded guide. Keep messages short, warm, clear.
-Weave language that feels mystical and handcrafted; draw on retrieved Sidthie knowledge to stay specific.
-Never ask for images or files. Do not repeat yourself. Avoid headings.
-When asked to compose a blessing, output EXACTLY 5 lines (no title, no extra text).
-`.trim();
+// Retry configuration
+const MAX_RETRIES = 2;
+const RETRY_DELAY = 1000;
 
-/** Sidthies list + short explanations (used in ask_context + product mapping) */
-const SIDTHIES = [
-  { key: 'NALAMERA',  label: 'Inner Strength',  short: 'A steady courage that rises quietly from within.' },
-  { key: 'LUMASARA',  label: 'Happiness',       short: 'A soft, luminous joy that brightens the ordinary.' },
-  { key: 'WELAMORA',  label: 'Love',            short: 'A tender presence that listens and embraces.' },
-  { key: 'NIRALUMA',  label: 'Wisdom',          short: 'A calm clarity that sees the path with kindness.' },
-  { key: 'RAKAWELA',  label: 'Protection',      short: 'A gentle guard that shelters what is precious.' },
-  { key: 'OLANWELA',  label: 'Healing',         short: 'A quiet mending that restores balance and breath.' },
-  { key: 'MORASARA',  label: 'Peace',           short: 'A stillness that settles and softens the heart.' },
-];
-
-const SIDTHIE_KEYS   = new Set(SIDTHIES.map(s => s.key));
-const SIDTHIE_LABELS = new Set(SIDTHIES.map(s => s.label.toLowerCase()));
-
-/** Conversation states */
-type State = 'unknown' | 'ask_name' | 'ask_intent' | 'ask_context' | 'compose_blessing';
+// Session state tracking
+interface SessionState {
+  state: 'ask_name' | 'ask_intent' | 'ask_context' | 'ask_email' | 'compose_blessing';
+  userName?: string;
+  sidthieKey?: string;
+  sidthieLabel?: string;
+  userEmail?: string;
+  messageCount: number;
+  lastUpdated: number;
+}
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string };
 
-type ContextStatus = {
-  recipientAnswered: boolean;
-  feelingAnswered: boolean;
-};
+// Helper to encode/decode session state
+function encodeStateMarker(state: SessionState): string {
+  return `[STATE:${JSON.stringify(state)}]`;
+}
 
+function extractStateFromMessages(messages: Msg[]): SessionState | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') {
+      const content = messages[i].content;
+      const match = content.match(/\[STATE:({.*?})\]/);
+      if (match) {
+        try {
+          return JSON.parse(match[1]);
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// CORS helpers
 function normalizeOrigin(value: string) {
   return value.replace(/\/+$/, '').toLowerCase();
 }
@@ -70,7 +92,7 @@ function matchesAllowed(origin: string, allowed: string) {
   const allowedHost = stripProtocol(normAllowed);
 
   if (allowedHost.startsWith('*.')) {
-    const suffix = allowedHost.slice(1); // keep leading dot
+    const suffix = allowedHost.slice(1);
     return originHost.endsWith(suffix);
   }
   return originHost === allowedHost;
@@ -85,7 +107,6 @@ function isOriginAllowed(origin: string | undefined) {
 function resolveCorsOrigin(origin: string | undefined) {
   if (ALLOW_ALL_ORIGINS) return '*';
   if (origin && isOriginAllowed(origin)) return origin;
-  // fall back to first configured origin to avoid empty header
   return ALLOWED_ORIGINS[0] || '*';
 }
 
@@ -106,8 +127,7 @@ export async function OPTIONS(req: Request) {
   return new Response(null, { status: 204, headers: corsHeaders(origin) });
 }
 
-/* ---------------- State Machine Helpers ---------------- */
-
+// Message helpers
 function firstUserMessage(messages: Msg[]): string | undefined {
   return messages.find(m => m.role === 'user')?.content;
 }
@@ -119,18 +139,17 @@ function lastUserMessage(messages: Msg[]): string | undefined {
   return undefined;
 }
 
-function extractName(messages: Msg[]): string | undefined {
-  const text = firstUserMessage(messages) || '';
-  // Try: "I'm X", "I am X", "My name is X", else first capitalized token
-  const m1 = text.match(/\b(?:i am|i’m|i am called|my name is)\s+([A-Za-z][\w'-]{1,30})/i);
-  if (m1) return cleanWord(m1[1]);
-  const tokens = text.trim().split(/\s+/);
-  const cand = tokens.find(t => /^[A-Z][a-zA-Z'’-]{1,30}$/.test(t));
-  return cand ? cleanWord(cand) : undefined;
+function cleanWord(w: string) {
+  return w.replace(/[^\p{L}\p{M}''-]+/gu, '');
 }
 
-function cleanWord(w: string) {
-  return w.replace(/[^\p{L}\p{M}'’-]+/gu, '');
+function extractName(messages: Msg[]): string | undefined {
+  const text = firstUserMessage(messages) || '';
+  const m1 = text.match(/\b(?:i am|i'm|i am called|my name is)\s+([A-Za-z][\w'-]{1,30})/i);
+  if (m1) return cleanWord(m1[1]);
+  const tokens = text.trim().split(/\s+/);
+  const cand = tokens.find(t => /^[A-Z][a-zA-Z''-]{1,30}$/.test(t));
+  return cand ? cleanWord(cand) : undefined;
 }
 
 function detectIntent(messages: Msg[]): { key?: string; label?: string } {
@@ -149,173 +168,164 @@ function detectIntent(messages: Msg[]): { key?: string; label?: string } {
   return {};
 }
 
-function countUserMessages(messages: Msg[]): number {
-  return messages.filter(m => m.role === 'user').length;
+// State machine - explicit state tracking
+function determineNextState(
+  messages: Msg[], 
+  currentState: SessionState | null
+): SessionState {
+  const userMessages = messages.filter(m => m.role === 'user');
+  const userCount = userMessages.length;
+  
+  // First message - ask for name
+  if (userCount === 0 || !currentState) {
+    return {
+      state: 'ask_name',
+      messageCount: 0,
+      lastUpdated: Date.now(),
+    };
+  }
+  
+  // State transition logic (deterministic)
+  switch (currentState.state) {
+    case 'ask_name':
+      // User provided name, move to intent selection
+      if (userCount > currentState.messageCount) {
+        const userName = extractName(messages);
+        return {
+          state: 'ask_intent',
+          userName: userName || currentState.userName,
+          messageCount: userCount,
+          lastUpdated: Date.now(),
+        };
+      }
+      return currentState;
+      
+    case 'ask_intent':
+      // User selected Sidthie, move to context
+      if (userCount > currentState.messageCount) {
+        const { key, label } = detectIntent(messages);
+        if (key && label) {
+          return {
+            state: 'ask_context',
+            userName: currentState.userName,
+            sidthieKey: key,
+            sidthieLabel: label,
+            messageCount: userCount,
+            lastUpdated: Date.now(),
+          };
+        }
+      }
+      return currentState;
+      
+    case 'ask_context':
+      // User provided context, move to email capture
+      if (userCount > currentState.messageCount) {
+        return {
+          state: 'ask_email',
+          userName: currentState.userName,
+          sidthieKey: currentState.sidthieKey,
+          sidthieLabel: currentState.sidthieLabel,
+          messageCount: userCount,
+          lastUpdated: Date.now(),
+        };
+      }
+      return currentState;
+      
+    case 'ask_email':
+      // User provided email, move to blessing
+      if (userCount > currentState.messageCount) {
+        const userEmail = lastUserMessage(messages);
+        return {
+          state: 'compose_blessing',
+          userName: currentState.userName,
+          sidthieKey: currentState.sidthieKey,
+          sidthieLabel: currentState.sidthieLabel,
+          userEmail: userEmail || undefined,
+          messageCount: userCount,
+          lastUpdated: Date.now(),
+        };
+      }
+      return currentState;
+      
+    case 'compose_blessing':
+      // Blessing complete - stay in this state (conversation ends)
+      return currentState;
+      
+    default:
+      return currentState;
+  }
 }
 
-const RECIPIENT_PATTERNS = [
-  /\bfor\s+(?:my|our|his|her|their|the|a|an)\b/i,
-  /\bfor\s+(?:mom|mum|mother|dad|father|son|daughter|child|children|friend|partner|wife|husband|sister|brother|family|team)\b/i,
-  /\bfor\s+(?:someone|somebody|anyone|another|others)\b/i,
-  /\bfor\s+me\b/i,
-  /\bfor\s+us\b/i,
-  /\bfor\s+myself\b/i,
-  /\bmyself\b/i,
-  /\bsomeone else\b/i,
-  /\bfor them\b/i,
-];
+// Tiered vector search - only use when needed
+function shouldUseVectorSearch(state: string): boolean {
+  switch (state) {
+    case 'ask_name':
+      return false; // Pre-written greetings, no knowledge needed
+    case 'ask_intent':
+      return false; // Just listing Sidthies, no knowledge needed
+    case 'ask_email':
+      return false; // Simple email request
+    case 'ask_context':
+      return true; // Need Sidthie knowledge for mystical elaboration
+    case 'compose_blessing':
+      return true; // Need full knowledge for blessing creation
+    default:
+      return false;
+  }
+}
 
-const FEELING_KEYWORDS = [
-  'feel',
-  'feels',
-  'feeling',
-  'emotion',
-  'present',
-  'heart',
-  'hearts',
-  'courage',
-  'peace',
-  'calm',
-  'love',
-  'healing',
-  'strength',
-  'grounded',
-  'hope',
-  'gentle',
-  'support',
-  'ease',
-  'soft',
-  'comfort',
-  'grace',
-  'worry',
-  'anxious',
-  'fear',
-  'joy',
-  'grateful',
-  'gratitude',
-  'clarity',
-  'ready',
-  'longing',
-  'need',
-  'needs',
-  'seeking',
-  'inviting',
-  'release',
-  'tension',
-  'rest',
-];
+// Build controller message with pre-selected variations
+function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
+  // Select random variations for this conversation turn
+  const greetingText = currentState.state === 'ask_name' 
+    ? getRandomVariation(GREETING_VARIATIONS) 
+    : undefined;
+    
+  const nameRequestText = currentState.state === 'ask_name'
+    ? getRandomVariation(NAME_REQUEST_VARIATIONS)
+    : undefined;
+    
+  const selectionText = currentState.state === 'ask_intent' && currentState.userName
+    ? injectVariables(getRandomVariation(SIDTHIE_SELECTION_VARIATIONS), { NAME: currentState.userName })
+    : undefined;
+    
+  const contextQuestionText = currentState.state === 'ask_context' && currentState.sidthieLabel
+    ? injectVariables(getRandomVariation(CONTEXT_QUESTION_VARIATIONS), { 
+        SIDTHIE: currentState.sidthieLabel 
+      })
+    : undefined;
 
-function analyzeContext(messages: Msg[]): ContextStatus {
-  let recipientAnswered = false;
-  let feelingAnswered = false;
+  return buildSystemMessage({
+    state: currentState.state,
+    userName: currentState.userName,
+    sidthieKey: currentState.sidthieKey,
+    sidthieLabel: currentState.sidthieLabel,
+    userEmail: currentState.userEmail,
+    userContext: lastUserMessage(messages),
+    greetingText,
+    nameRequestText,
+    selectionText,
+    contextQuestionText,
+  });
+}
 
-  for (const message of messages) {
-    if (message.role !== 'user') continue;
-    const text = message.content.toLowerCase();
-
-    if (!recipientAnswered) {
-      recipientAnswered = RECIPIENT_PATTERNS.some(pattern => pattern.test(text));
+// Retry helper
+async function retryableRequest<T>(
+  fn: () => Promise<T>,
+  retries: number = MAX_RETRIES
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      return retryableRequest(fn, retries - 1);
     }
-
-    if (!feelingAnswered) {
-      feelingAnswered =
-        FEELING_KEYWORDS.some(keyword => text.includes(keyword)) ||
-        text.split(/\s+/).length >= 12;
-    }
-
-    if (recipientAnswered && feelingAnswered) break;
+    throw error;
   }
-
-  return { recipientAnswered, feelingAnswered };
 }
 
-/** Derive state:
- * 0 user msgs → ask_name
- * 1 user msg (name) but no intent → ask_intent
- * After user chooses intent → ask_context
- * After another user msg (context) → compose_blessing
- */
-function deriveState(messages: Msg[]): {
-  state: State;
-  name?: string;
-  intentKey?: string;
-  intentLabel?: string;
-  contextStatus?: ContextStatus;
-} {
-  const uCount = countUserMessages(messages);
-  if (uCount <= 0) return { state: 'ask_name' };
-
-  const name = extractName(messages);
-
-  const { key: intentKey, label: intentLabel } = detectIntent(messages);
-  if (!intentKey) {
-    // user has written once (likely their name) but not chosen an intent yet
-    return { state: 'ask_intent', name };
-  }
-
-  const contextStatus = analyzeContext(messages);
-  const allContextProvided = contextStatus.recipientAnswered && contextStatus.feelingAnswered;
-
-  if (!allContextProvided) {
-    return { state: 'ask_context', name, intentKey, intentLabel, contextStatus };
-  }
-
-  if (uCount >= 3) {
-    return { state: 'compose_blessing', name, intentKey, intentLabel, contextStatus };
-  }
-
-  // If both answers are already captured but the conversation is still short, err on composing.
-  return { state: 'compose_blessing', name, intentKey, intentLabel, contextStatus };
-}
-
-function sidthieShort(key?: string): string {
-  if (!key) return '';
-  const s = SIDTHIES.find(x => x.key === key);
-  return s ? s.short : '';
-}
-
-function numberedSidthieList(): string {
-  // Numbered 1..7 so your widget converts to buttons
-  return SIDTHIES
-    .map((s, i) => `${i + 1}. ${s.label} (${s.key})`)
-    .join('\n');
-}
-
-/** Build a strict controller message the model must follow */
-function buildControllerSystemMessage(current: ReturnType<typeof deriveState>) {
-  const lines: string[] = [];
-  lines.push(`CURRENT_STATE: ${current.state}`);
-  if (current.name) lines.push(`USER_NAME: ${current.name}`);
-  if (current.intentKey) lines.push(`SIDTHIE_KEY: ${current.intentKey}`);
-  if (current.intentLabel) lines.push(`SIDTHIE_LABEL: ${current.intentLabel}`);
-  if (current.contextStatus) {
-    lines.push(`CONTEXT_RECIPIENT_ANSWERED: ${current.contextStatus.recipientAnswered ? 'yes' : 'no'}`);
-    lines.push(`CONTEXT_FEELING_ANSWERED: ${current.contextStatus.feelingAnswered ? 'yes' : 'no'}`);
-  }
-  lines.push('');
-  lines.push('RULES:');
-  lines.push('- Reply briefly in Sidthah style; never ask for or mention images/files.');
-  lines.push('- Do not add headings. Keep friendly and calm.');
-  lines.push('- Follow the state actions EXACTLY. No extra questions.');
-  lines.push('- Keep phrasing fresh; do not reuse earlier sentences verbatim.');
-  lines.push('');
-  lines.push('ACTIONS BY STATE:');
-  lines.push('ask_name → Craft a warm, mystical welcome in Sidthah’s voice. Introduce yourself as Sidthah, speak of a space of wisdom/reflection, and invite the guest to share their first name so you may address them personally—explicitly include the phrase "If you feel comfortable," before the invitation.');
-  lines.push('ask_intent → Begin with one or two gentle sentences inviting {name} to select the Sidthie whose intent aligns with what their heart is ready to receive, drawing on Sidthie lore when possible. Then list exactly these seven options on separate numbered lines (1..7) so the UI renders them as buttons:');
-  lines.push(numberedSidthieList());
-  lines.push('ask_context → Offer one luminous, mystical sentence that reflects the chosen Sidthie and expands on its feeling (no shorter than 14 words), referencing retrieved knowledge when available. Then include a blank line.');
-  lines.push('- If CONTEXT_RECIPIENT_ANSWERED is "no", ask: "Is the blessing for yourself or someone else?"');
-  lines.push('- If CONTEXT_FEELING_ANSWERED is "no", ask: "When you think of your Sidthie and the blessing, what feels most present at this moment?"');
-  lines.push('- If either answer is already provided (status "yes"), acknowledge it briefly and do NOT repeat that question.');
-  lines.push('- If both answers are already provided, acknowledge them gently and move directly toward composing the blessing.');
-  lines.push('compose_blessing → Output ONLY the 5-line blessing, no titles, no preface, no afterword. Exactly 5 lines. Each line ≤ ~80 characters. Then stop.');
-  lines.push('');
-  lines.push('IMPORTANT: If CURRENT_STATE is compose_blessing, do not ask any further questions.');
-  return lines.join('\n');
-}
-
-/* ---------------- Route Handler ---------------- */
-
+// Main POST handler
 export async function POST(req: Request) {
   const origin = req.headers.get('origin');
   try {
@@ -332,13 +342,14 @@ export async function POST(req: Request) {
       return jsonError(400, 'Body must contain { messages: Array<{role, content}> }', origin);
     }
 
-    // Derive state from the conversation so far
-    const current = deriveState(messages as Msg[]);
+    // Determine current state (explicit tracking, no derivation)
+    const previousState = extractStateFromMessages(messages as Msg[]);
+    const currentState = determineNextState(messages as Msg[], previousState);
 
-    // Build Responses API "input" sequence
+    // Build input with static base prompt + dynamic controller
     const input: any[] = [
-      { role: 'system', content: BASE_SYSTEM_PROMPT },
-      { role: 'system', content: buildControllerSystemMessage(current) },
+      { role: 'system', content: BASE_PERSONA_PROMPT }, // Gets cached by OpenAI
+      { role: 'system', content: buildControllerMessage(currentState, messages as Msg[]) },
     ];
 
     for (const m of messages as Msg[]) {
@@ -346,20 +357,36 @@ export async function POST(req: Request) {
     }
 
     const client = createOpenAIClient();
-    const tools = VECTOR_STORE_ID
+
+    // Tiered vector search - only when needed
+    const useVectorSearch = shouldUseVectorSearch(currentState.state) && VECTOR_STORE_ID;
+
+    const tools = useVectorSearch
       ? [{ type: 'file_search' as const, vector_store_ids: [VECTOR_STORE_ID] }]
       : undefined;
 
     const request: any = {
       model: MODEL,
       input,
+      max_output_tokens: currentState.state === 'compose_blessing' ? 200 : 100,
     };
 
-    if (tools) request.tools = tools;
+    if (tools) {
+      request.tools = tools;
+      request.tool_choice = 'auto';
+    }
 
-    const openAIStream = await client.responses.stream(request);
+    // Execute with retry logic
+    const openAIStream = await retryableRequest(() => 
+      client.responses.stream(request)
+    );
 
-    const sseStream = openAiStreamToSSE(openAIStream, current.state, current.intentKey);
+    const sseStream = openAiStreamToSSE(
+      openAIStream, 
+      currentState.state, 
+      currentState.sidthieKey,
+      currentState.userEmail
+    );
 
     return new Response(sseStream, {
       status: 200,
@@ -371,12 +398,21 @@ export async function POST(req: Request) {
       },
     });
   } catch (err: any) {
-    return jsonError(500, err?.message || 'Unhandled error', origin);
+    console.error('[Bless Chat Error]', {
+      message: err?.message,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // User-friendly error messages
+    const userMessage = err?.message?.includes('rate limit')
+      ? 'The wisdom flows slowly right now. Please try again in a moment.'
+      : err?.message || 'I encountered a moment of silence. Let us try once more.';
+    
+    return jsonError(500, userMessage, origin);
   }
 }
 
-/** ---- helpers ---- **/
-
+// Helper functions
 function jsonError(status: number, message: string, origin?: string | null) {
   return new Response(JSON.stringify({ error: message }), {
     status,
@@ -389,7 +425,12 @@ type OpenAIStream = AsyncIterable<any> & {
   finalResponse: () => Promise<any>;
 };
 
-function openAiStreamToSSE(stream: OpenAIStream, state: State, sidthieKey?: string): ReadableStream<Uint8Array> {
+function openAiStreamToSSE(
+  stream: OpenAIStream, 
+  state: string, 
+  sidthieKey?: string,
+  userEmail?: string
+): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let aggregated = '';
   let emittedDelta = false;
@@ -448,7 +489,14 @@ function openAiStreamToSSE(stream: OpenAIStream, state: State, sidthieKey?: stri
           }
         }
 
-        send({ type: 'done', meta: { state, sidthieKey: sidthieKey ?? null } });
+        send({ 
+          type: 'done', 
+          meta: { 
+            state, 
+            sidthieKey: sidthieKey ?? null,
+            userEmail: userEmail ?? null
+          } 
+        });
       } catch (error: any) {
         send({ type: 'error', message: error?.message || 'Stream error' });
       } finally {
