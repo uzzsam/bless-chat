@@ -1,13 +1,6 @@
 /*
   Bless chat widget: mounts into a container that has data-chat-container attribute.
-  Exposes global BlessChat with a mount helper for flexibility, otherwise auto-mounts on DOMContentLoaded.
-  
-  Optimizations:
-  - Updated Sidthie names (NIRALUMA→Bliss, OLANWELA→Health, RAKAWELA→Peace, MORASARA→Fortune)
-  - True token-by-token streaming
-  - Email capture before blessing
-  - Session-based daily limits (3 blessings)
-  - Error recovery with retry
+  FIXED: Removed email capture from chat flow, simplified loading states, updated blessing messages
 */
 
 type Role = 'user' | 'assistant';
@@ -30,7 +23,6 @@ interface StreamMeta {
   sidthieKey?: string | null;
   sidthieLabel?: string | null;
   userName?: string | null;
-  userEmail?: string | null;
   marker?: string | null;
   done?: boolean;
   messageCount?: number;
@@ -255,63 +247,6 @@ const STYLE_BLOCK = `
   text-align: center;
 }
 
-/* Email capture styles */
-.bless-chat-email-capture {
-  display: grid;
-  gap: 0.75rem;
-  padding: 1.5rem;
-  border-radius: 32px;
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.24);
-}
-
-.bless-chat-email-label {
-  font-size: 1rem;
-  color: rgba(var(--bless-cream-100), 0.92);
-  text-align: center;
-}
-
-.bless-chat-email-row {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.bless-chat-email-input {
-  flex: 1 1 200px;
-  padding: 0.8rem 1.2rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.24);
-  background: transparent;
-  color: rgba(var(--bless-cream-100), 0.92);
-  font-size: 1rem;
-}
-
-.bless-chat-email-input::placeholder {
-  color: rgba(var(--bless-cream-100), 0.45);
-}
-
-.bless-chat-email-input:focus {
-  outline: none;
-  border-color: rgba(255,255,255,0.35);
-}
-
-.bless-chat-email-button {
-  padding: 0.8rem 2rem;
-  border-radius: 999px;
-  border: none;
-  background: radial-gradient(circle at 30% 30%, rgba(var(--bless-gold-400),0.95), rgba(var(--bless-gold-400),0.82));
-  color: rgb(var(--bless-green-900));
-  font-family: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 180ms ease;
-}
-
-.bless-chat-email-button:hover {
-  transform: translateY(-2px);
-}
-
 /* Retry button */
 .bless-chat-retry {
   padding: 0.75rem 1.75rem;
@@ -363,6 +298,7 @@ const STYLE_BLOCK = `
   cursor: not-allowed;
 }
 
+/* FIXED: Simplified loading indicator - only one style */
 .bless-chat-bubble--status.is-typing {
   display: flex;
   justify-content: center;
@@ -432,14 +368,6 @@ const STYLE_BLOCK = `
 
   .bless-chat-options {
     grid-template-columns: 1fr;
-  }
-  
-  .bless-chat-email-row {
-    flex-direction: column;
-  }
-  
-  .bless-chat-email-button {
-    width: 100%;
   }
 }
 `;
@@ -641,10 +569,6 @@ class BlessChatWidget {
   private currentStreamingText = '';
   private activeSidthie: SidthieMeta | null = null;
   private lastExplanation = '';
-  
-  // Email capture
-  private awaitingEmail = false;
-  private userEmail: string | null = null;
   
   // Daily limits
   private blessingCount: number = 0;
@@ -974,63 +898,6 @@ class BlessChatWidget {
     });
   }
   
-  // Email validation helper
-  private isValidEmail(email: string): boolean {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  }
-  
-  // Show email input UI
-  private showEmailInput() {
-    if (this.messageList.querySelector('.bless-chat-email-capture')) {
-      this.awaitingEmail = false;
-      return;
-    }
-    this.awaitingEmail = false;
-    const emailContainer = document.createElement('div');
-    emailContainer.className = 'bless-chat-email-capture';
-    
-    const emailLabel = document.createElement('label');
-    emailLabel.className = 'bless-chat-email-label';
-    emailLabel.textContent = 'Enter your email to receive your blessing:';
-    
-    const emailInputWrapper = document.createElement('div');
-    emailInputWrapper.className = 'bless-chat-email-row';
-    
-    const emailInput = document.createElement('input');
-    emailInput.type = 'email';
-    emailInput.className = 'bless-chat-email-input';
-    emailInput.placeholder = 'your@email.com';
-    emailInput.required = true;
-    
-    const emailButton = document.createElement('button');
-    emailButton.type = 'button';
-    emailButton.className = 'bless-chat-email-button';
-    emailButton.textContent = 'Continue';
-    
-    emailButton.addEventListener('click', () => {
-      const email = emailInput.value.trim();
-      if (this.isValidEmail(email)) {
-        this.userEmail = email;
-        this.awaitingEmail = false;
-        emailContainer.remove();
-        
-        // Submit email as a message
-        this.appendMessage({ role: 'user', content: email });
-        this.messages.push({ role: 'user', content: email });
-        this.fetchAssistantReply();
-      } else {
-        this.setError('Please enter a valid email address.');
-      }
-    });
-    
-    emailInputWrapper.append(emailInput, emailButton);
-    emailContainer.append(emailLabel, emailInputWrapper);
-    this.messageList.appendChild(emailContainer);
-    this.scrollToBottom();
-    
-    emailInput.focus();
-  }
-  
   // Retry button helper
   private showRetryButton() {
     const retryBtn = document.createElement('button');
@@ -1173,9 +1040,6 @@ class BlessChatWidget {
             aggregated = payload.text;
           }
         } else if (payload.type === 'meta') {
-          if (typeof payload.state === 'string' && payload.state === 'ask_email') {
-            this.awaitingEmail = true;
-          }
           if (typeof payload.done === 'boolean') {
             doneFlag = payload.done;
           }
@@ -1190,7 +1054,6 @@ class BlessChatWidget {
               state: payload.state,
               sidthieKey: payload.sidthieKey ?? null,
               sidthieLabel: payload.sidthieLabel ?? null,
-              userEmail: payload.userEmail ?? null,
               userName: payload.userName ?? null,
               marker: payload.marker ?? null,
               done: payload.done,
@@ -1209,12 +1072,7 @@ class BlessChatWidget {
     this.messages.push({ role: 'assistant', content: output });
     this.recordStateMarker(finalMeta || undefined);
     
-    // Show email input if needed
-    if (this.awaitingEmail) {
-      this.showEmailInput();
-    } else {
-      this.onAssistantComplete(output, doneFlag, finalMeta || undefined);
-    }
+    this.onAssistantComplete(output, doneFlag, finalMeta || undefined);
   }
 
   private onAssistantComplete(
@@ -1239,74 +1097,14 @@ class BlessChatWidget {
 
       this.displayBlessing(blessing, finalMeta);
       
-      const active = this.activeSidthie;
-      const rawFeeling = (this.lastExplanation || '').replace(/\s+$/, '');
-      const feelingSnippet = rawFeeling.split(/[.!?]/).map(part => part.trim()).filter(Boolean)[0] || '';
-      
-      const closingParts: string[] = [];
-      if (active) {
-        closingParts.push(`The blessing of ${active.label} is woven around you now.`);
-      } else {
-        closingParts.push('Your blessing is woven around you now.');
-      }
-      if (feelingSnippet) {
-        const feelingPhrase = feelingSnippet.charAt(0).toLowerCase() + feelingSnippet.slice(1);
-        closingParts.push(`Hold close this sense of ${feelingPhrase} as you receive it below.`);
-      } else {
-        closingParts.push('Follow the glow below to receive it.');
-      }
-      this.pushAssistantMessage(closingParts.join(' '));
-      
-      // Add count message
-      const remainingBlessings = this.MAX_BLESSINGS - this.blessingCount;
-      if (remainingBlessings > 0) {
-        this.pushAssistantMessage(
-          `This blessing is now with you. You may receive ${remainingBlessings} more blessing${remainingBlessings > 1 ? 's' : ''} this session.`
-        );
-      } else {
-        this.pushAssistantMessage(
-          `This completes your three blessings for this session. Each blessing needs time to settle. Close your browser to begin a new session, or return tomorrow.`
-        );
-        this.inputEl.disabled = true;
-        this.sendBtn.disabled = true;
-      }
-      
-      // Send blessing via email if we have it
-      if (this.userEmail && blessing) {
-        this.sendBlessingEmail(blessing, finalMeta);
-      }
+      // FIXED: Changed blessing message
+      this.pushAssistantMessage('Your blessing has been created. Scroll down to read it.');
       
       return;
     }
 
     if (/image|upload|photo|picture/i.test(text)) {
       this.pushAssistantMessage('No image is needed. Let us continue in words.');
-    }
-  }
-  
-  private async sendBlessingEmail(
-    blessing: string, 
-    finalMeta?: StreamMeta
-  ) {
-    try {
-      const response = await fetch('/api/send-blessing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: this.userEmail,
-          blessing,
-          sidthieKey: this.activeSidthie?.key || finalMeta?.sidthieKey || null,
-          sidthieLabel: this.activeSidthie?.label || null,
-          explanation: this.lastExplanation || this.activeSidthie?.description || null,
-          userName: null, // Could extract from messages if needed
-        }),
-      });
-      
-      if (!response.ok) {
-        console.error('Failed to send blessing email');
-      }
-    } catch (error) {
-      console.error('Error sending blessing email:', error);
     }
   }
 

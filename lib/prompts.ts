@@ -1,5 +1,6 @@
 /* lib/prompts.ts
    Static system prompts with template variable injection
+   FIXED: Removed ask_email state - email capture happens after blessing
 */
 
 import { SIDTHIES } from './sidthies';
@@ -65,21 +66,10 @@ Output format:
 
 [Context question]
 
-**If ask_email:**
-- User has provided context: {{USER_CONTEXT}}
-- Selected Sidthie: {{SIDTHIE_LABEL}} ({{SIDTHIE_KEY}})
-- User's name: {{USER_NAME}}
-
-Respond warmly:
-"Before I craft your {{SIDTHIE_LABEL}} blessing, may I have your email? I'll send the blessing to you, along with deeper wisdom about {{SIDTHIE_LABEL}}."
-
-Do NOT create the blessing yet. Wait for the user's email.
-
 **If compose_blessing:**
 - User chose: {{SIDTHIE_LABEL}} ({{SIDTHIE_KEY}})
 - User's name: {{USER_NAME}}
 - Context provided: {{USER_CONTEXT}}
-- User email: {{USER_EMAIL}}
 
 Create a blessing with these STRICT requirements:
 - Exactly 40-45 words
@@ -103,6 +93,8 @@ PREFER:
 - Natural sentence flow
 
 OUTPUT: Only the blessing text. No preamble, no afterword, no "Here is your blessing."
+
+After the blessing, simply say: "Your blessing has been created. Scroll down to read it."
 
 ## HANDLING OFF-TOPIC INPUT
 
@@ -129,7 +121,6 @@ export function buildSystemMessage(params: {
   userName?: string;
   sidthieKey?: string;
   sidthieLabel?: string;
-  userEmail?: string;  // ADD THIS LINE
   userContext?: string;
   greetingText?: string;
   nameRequestText?: string;
@@ -143,7 +134,6 @@ export function buildSystemMessage(params: {
   prompt = prompt.replace(/{{USER_NAME}}/g, params.userName || 'traveler');
   prompt = prompt.replace(/{{SIDTHIE_KEY}}/g, params.sidthieKey || 'none');
   prompt = prompt.replace(/{{SIDTHIE_LABEL}}/g, params.sidthieLabel || 'none');
-  prompt = prompt.replace(/{{USER_EMAIL}}/g, params.userEmail || 'none');  // ADD THIS LINE
   prompt = prompt.replace(/{{USER_CONTEXT}}/g, params.userContext || 'none');
   
   // Add pre-selected variations as additional context

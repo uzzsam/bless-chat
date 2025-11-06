@@ -1,6 +1,6 @@
 /* app/api/chat/route.ts
    Vercel Edge route: Responses API → SSE streaming
-   Optimized with explicit state tracking, tiered vector search, and email capture
+   Fixed: Simplified flow - removed ask_email state, email capture happens AFTER blessing
 */
 import { createOpenAIClient, resolveModel, resolveVectorStoreId } from '@/lib/openai';
 import { buildSystemMessage, BASE_PERSONA_PROMPT } from '@/lib/prompts';
@@ -31,13 +31,12 @@ const ALLOWED_ORIGINS = RAW_ALLOWED_ORIGIN
 const ALLOW_ALL_ORIGINS = ALLOWED_ORIGINS.includes('*');
 const VECTOR_STORE_ID = resolveVectorStoreId();
 
-// Session state tracking
+// Session state tracking - SIMPLIFIED: Removed ask_email
 interface SessionState {
-  state: 'ask_name' | 'ask_intent' | 'ask_context' | 'ask_email' | 'compose_blessing';
+  state: 'ask_name' | 'ask_intent' | 'ask_context' | 'compose_blessing';
   userName?: string;
   sidthieKey?: string;
   sidthieLabel?: string;
-  userEmail?: string;
   messageCount: number;
   lastUpdated: number;
 }
@@ -162,7 +161,7 @@ function detectIntent(messages: Msg[]): { key?: string; label?: string } {
   return {};
 }
 
-// State machine - explicit state tracking
+// State machine - SIMPLIFIED: Removed ask_email state
 function determineNextState(
   messages: Msg[], 
   currentState: SessionState | null
@@ -212,29 +211,13 @@ function determineNextState(
       return currentState;
       
     case 'ask_context':
-      // User provided context, move to email capture
+      // User provided context, move DIRECTLY to blessing (no email)
       if (userCount > currentState.messageCount) {
-        return {
-          state: 'ask_email',
-          userName: currentState.userName,
-          sidthieKey: currentState.sidthieKey,
-          sidthieLabel: currentState.sidthieLabel,
-          messageCount: userCount,
-          lastUpdated: Date.now(),
-        };
-      }
-      return currentState;
-      
-    case 'ask_email':
-      // User provided email, move to blessing
-      if (userCount > currentState.messageCount) {
-        const userEmail = lastUserMessage(messages);
         return {
           state: 'compose_blessing',
           userName: currentState.userName,
           sidthieKey: currentState.sidthieKey,
           sidthieLabel: currentState.sidthieLabel,
-          userEmail: userEmail || undefined,
           messageCount: userCount,
           lastUpdated: Date.now(),
         };
@@ -257,8 +240,6 @@ function shouldUseVectorSearch(state: string): boolean {
       return false; // Pre-written greetings, no knowledge needed
     case 'ask_intent':
       return false; // Just listing Sidthies, no knowledge needed
-    case 'ask_email':
-      return false; // Simple email request
     case 'ask_context':
       return true; // Need Sidthie knowledge for mystical elaboration
     case 'compose_blessing':
@@ -294,7 +275,6 @@ function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
     userName: currentState.userName,
     sidthieKey: currentState.sidthieKey,
     sidthieLabel: currentState.sidthieLabel,
-    userEmail: currentState.userEmail,
     userContext: lastUserMessage(messages),
     greetingText,
     nameRequestText,
@@ -324,32 +304,32 @@ export async function POST(req: Request) {
     const previousState = extractStateFromMessages(messages as Msg[]);
     const currentState = determineNextState(messages as Msg[], previousState);
 
-   // Build input with static base prompt + dynamic controller
-const input: any[] = [
-  { role: 'system', content: BASE_PERSONA_PROMPT }, // Gets cached by OpenAI
-  { role: 'system', content: buildControllerMessage(currentState, messages as Msg[]) },
-];
+    // Build input with static base prompt + dynamic controller
+    const input: any[] = [
+      { role: 'system', content: BASE_PERSONA_PROMPT }, // Gets cached by OpenAI
+      { role: 'system', content: buildControllerMessage(currentState, messages as Msg[]) },
+    ];
 
-// Add existing messages
-for (const m of messages as Msg[]) {
-  input.push({ role: m.role, content: m.content });
-}
+    // Add existing messages
+    for (const m of messages as Msg[]) {
+      input.push({ role: m.role, content: m.content });
+    }
 
-// CRITICAL FIX: If no user messages, OpenAI needs a trigger to respond
-const hasUserMessage = (messages as Msg[]).some(m => m.role === 'user');
-if (!hasUserMessage) {
-  input.push({ 
-    role: 'user', 
-    content: 'Hello' 
-  });
-}
+    // CRITICAL FIX: If no user messages, OpenAI needs a trigger to respond
+    const hasUserMessage = (messages as Msg[]).some(m => m.role === 'user');
+    if (!hasUserMessage) {
+      input.push({ 
+        role: 'user', 
+        content: 'Hello' 
+      });
+    }
 
-const client = createOpenAIClient();
+    const client = createOpenAIClient();
 
     // Tiered vector search - only when needed
     const useVectorSearch = shouldUseVectorSearch(currentState.state) && VECTOR_STORE_ID;
 
-   const tools = useVectorSearch
+    const tools = useVectorSearch
       ? [{ type: 'file_search' as const, vector_store_ids: [VECTOR_STORE_ID] }]
       : undefined;
 
@@ -405,7 +385,7 @@ type OpenAIStream = AsyncIterable<any> & {
   finalResponse: () => Promise<any>;
 };
 
-// FIXED: Use old working streaming logic that properly handles Responses API events
+// Streaming function - simplified meta data
 function openAiStreamToSSE(
   stream: OpenAIStream,
   sessionState: SessionState
@@ -423,7 +403,6 @@ function openAiStreamToSSE(
     sidthieKey: stateSnapshot.sidthieKey ?? null,
     sidthieLabel: stateSnapshot.sidthieLabel ?? null,
     userName: stateSnapshot.userName ?? null,
-    userEmail: stateSnapshot.userEmail ?? null,
     messageCount: stateSnapshot.messageCount ?? 0,
     marker,
   };
