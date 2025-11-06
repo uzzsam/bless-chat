@@ -25,6 +25,17 @@ interface WidgetOptions {
   requireBlessing?: boolean;
 }
 
+interface StreamMeta {
+  state?: string;
+  sidthieKey?: string | null;
+  sidthieLabel?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
+  marker?: string | null;
+  done?: boolean;
+  messageCount?: number;
+}
+
 const DEFAULTS: Required<WidgetOptions> = {
   apiUrl: 'https://bless-test-brown.vercel.app/api/chat',
   placeholder: 'Talk to Sidthah',
@@ -970,6 +981,11 @@ class BlessChatWidget {
   
   // Show email input UI
   private showEmailInput() {
+    if (this.messageList.querySelector('.bless-chat-email-capture')) {
+      this.awaitingEmail = false;
+      return;
+    }
+    this.awaitingEmail = false;
     const emailContainer = document.createElement('div');
     emailContainer.className = 'bless-chat-email-capture';
     
@@ -1090,6 +1106,13 @@ class BlessChatWidget {
     }
   }
 
+  private recordStateMarker(meta?: StreamMeta | null) {
+    if (!meta?.marker) return;
+    const marker = meta.marker.trim();
+    if (!marker) return;
+    this.messages.push({ role: 'assistant', content: marker });
+  }
+
   private async handleStream(response: Response) {
     const reader = response.body?.getReader();
     if (!reader) {
@@ -1100,7 +1123,7 @@ class BlessChatWidget {
 
     let doneFlag = false;
     let aggregated = '';
-    let finalMeta: { state?: string; sidthieKey?: string | null; userEmail?: string | null } | null = null;
+    let finalMeta: StreamMeta | null = null;
 
     this.appendMessage({ role: 'assistant', content: '' }, true);
 
@@ -1141,13 +1164,38 @@ class BlessChatWidget {
           this.updateStreamingBubble(payload.textDelta);
         } else if (payload.type === 'done') {
           finalMeta = payload.meta || null;
-          doneFlag = finalMeta?.state === 'compose_blessing';
-        } else if (payload.type === 'meta' && typeof payload.done === 'boolean') {
-          // Check if we need to show email input
-          if (payload.state === 'ask_email') {
+          if (finalMeta && typeof finalMeta.done === 'boolean') {
+            doneFlag = finalMeta.done;
+          } else if (finalMeta?.state === 'compose_blessing') {
+            doneFlag = true;
+          }
+          if (!aggregated && typeof payload.text === 'string') {
+            aggregated = payload.text;
+          }
+        } else if (payload.type === 'meta') {
+          if (typeof payload.state === 'string' && payload.state === 'ask_email') {
             this.awaitingEmail = true;
           }
-          doneFlag = payload.done;
+          if (typeof payload.done === 'boolean') {
+            doneFlag = payload.done;
+          }
+          if (payload.marker) {
+            finalMeta = finalMeta ?? {};
+            if (!finalMeta.marker) {
+              finalMeta.marker = payload.marker;
+            }
+          }
+          if (!finalMeta) {
+            finalMeta = {
+              state: payload.state,
+              sidthieKey: payload.sidthieKey ?? null,
+              sidthieLabel: payload.sidthieLabel ?? null,
+              userEmail: payload.userEmail ?? null,
+              userName: payload.userName ?? null,
+              marker: payload.marker ?? null,
+              done: payload.done,
+            };
+          }
         } else if (payload.type === 'error') {
           throw new Error(payload.message || 'Unexpected error');
         }
@@ -1159,6 +1207,7 @@ class BlessChatWidget {
     const output = cleaned || resolved;
     this.finalizeStreamingBubble(output);
     this.messages.push({ role: 'assistant', content: output });
+    this.recordStateMarker(finalMeta || undefined);
     
     // Show email input if needed
     if (this.awaitingEmail) {
@@ -1171,7 +1220,7 @@ class BlessChatWidget {
   private onAssistantComplete(
     text: string, 
     done: boolean, 
-    finalMeta?: { state?: string; sidthieKey?: string | null; userEmail?: string | null }
+    finalMeta?: StreamMeta
   ) {
     if (!text) return;
 
@@ -1237,7 +1286,7 @@ class BlessChatWidget {
   
   private async sendBlessingEmail(
     blessing: string, 
-    finalMeta?: { state?: string; sidthieKey?: string | null; userEmail?: string | null }
+    finalMeta?: StreamMeta
   ) {
     try {
       const response = await fetch('/api/send-blessing', {
@@ -1287,11 +1336,15 @@ class BlessChatWidget {
 
   private displayBlessing(
     blessing: string, 
-    finalMeta?: { state?: string; sidthieKey?: string | null; userEmail?: string | null }
+    finalMeta?: StreamMeta
   ) {
     let meta = this.activeSidthie;
     if (!meta && finalMeta?.sidthieKey) {
       meta = findSidthieByKey(finalMeta.sidthieKey);
+      if (meta) this.activeSidthie = meta;
+    }
+    if (!meta && finalMeta?.sidthieLabel) {
+      meta = findSidthieByLabel(finalMeta.sidthieLabel);
       if (meta) this.activeSidthie = meta;
     }
 

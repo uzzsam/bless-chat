@@ -93,9 +93,9 @@ export const GREETING_VARIATIONS = [
 export const NAME_REQUEST_VARIATIONS = [
   "If you feel comfortable, share your first name so I may speak to you by name.",
   "If you feel comfortable, please share your first name so I may address you personally.",
-  "Share your first name, so I may greet you by it and walk beside you.",
-  "May I know your first name, so our conversation can feel more personal?",
-  "Would you share your name with me? I'd like to address you properly.",
+  "If you feel comfortable, share your first name so I may greet you by it and walk beside you.",
+  "If you feel comfortable, may I know your first name so our conversation can feel more personal?",
+  "If you feel comfortable, would you share your name with me? I'd like to address you properly.",
 ];
 
 // Sidthie selection prompt variations (with name injected)

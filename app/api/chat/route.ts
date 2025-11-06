@@ -349,7 +349,7 @@ const client = createOpenAIClient();
     // Tiered vector search - only when needed
     const useVectorSearch = shouldUseVectorSearch(currentState.state) && VECTOR_STORE_ID;
 
-    const tools = useVectorSearch
+   const tools = useVectorSearch
       ? [{ type: 'file_search' as const, vector_store_ids: [VECTOR_STORE_ID] }]
       : undefined;
 
@@ -366,12 +366,7 @@ const client = createOpenAIClient();
     // Execute stream request
     const openAIStream = client.responses.stream(request);
 
-    const sseStream = openAiStreamToSSE(
-      openAIStream, 
-      currentState.state, 
-      currentState.sidthieKey,
-      currentState.userEmail
-    );
+    const sseStream = openAiStreamToSSE(openAIStream, currentState);
 
     return new Response(sseStream, {
       status: 200,
@@ -412,14 +407,26 @@ type OpenAIStream = AsyncIterable<any> & {
 
 // FIXED: Use old working streaming logic that properly handles Responses API events
 function openAiStreamToSSE(
-  stream: OpenAIStream, 
-  state: string, 
-  sidthieKey?: string,
-  userEmail?: string
+  stream: OpenAIStream,
+  sessionState: SessionState
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let aggregated = '';
   let doneSent = false;
+  const stateSnapshot: SessionState = {
+    ...sessionState,
+    lastUpdated: sessionState.lastUpdated ?? Date.now(),
+  };
+  const marker = encodeStateMarker(stateSnapshot);
+  const baseMeta = {
+    state: stateSnapshot.state,
+    sidthieKey: stateSnapshot.sidthieKey ?? null,
+    sidthieLabel: stateSnapshot.sidthieLabel ?? null,
+    userName: stateSnapshot.userName ?? null,
+    userEmail: stateSnapshot.userEmail ?? null,
+    messageCount: stateSnapshot.messageCount ?? 0,
+    marker,
+  };
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -427,7 +434,7 @@ function openAiStreamToSSE(
         controller.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(payload)}\n\n`));
       };
 
-      send({ type: 'meta', state, done: false });
+      send({ type: 'meta', state: baseMeta.state, done: false, marker });
 
       try {
         for await (const event of stream) {
@@ -436,7 +443,7 @@ function openAiStreamToSSE(
               const delta = event.delta ?? '';
               if (delta) {
                 aggregated += delta;
-                send({ type: 'response.output_text.delta', textDelta: delta });
+                send({ type: 'delta', textDelta: delta });
               }
               break;
             }
@@ -444,7 +451,7 @@ function openAiStreamToSSE(
               const delta = event.delta;
               if (typeof delta === 'string' && delta) {
                 aggregated += delta;
-                send({ type: 'response.delta', delta });
+                send({ type: 'delta', textDelta: delta });
               }
               break;
             }
@@ -464,38 +471,33 @@ function openAiStreamToSSE(
           final?.output?.[0]?.content?.find((item: any) => item.type === 'output_text')?.text ??
           aggregated;
 
-        if (typeof text === 'string' && text.trim()) {
-          const out = text.trim();
-          const done = state === 'compose_blessing';
-          send({ type: 'final', text: out, done });
-          send({ 
-            type: 'meta', 
-            done,
-            state,
-            sidthieKey: sidthieKey ?? null,
-            userEmail: userEmail ?? null
-          });
-          doneSent = true;
-        } else {
-          send({ 
-            type: 'meta', 
-            done: state === 'compose_blessing',
-            state,
-            sidthieKey: sidthieKey ?? null,
-            userEmail: userEmail ?? null
-          });
-          doneSent = true;
+        let out = typeof text === 'string' ? text.trim() : '';
+        if (!out && aggregated.trim()) {
+          out = aggregated.trim();
         }
+        aggregated = out;
+
+        const done = baseMeta.state === 'compose_blessing';
+        send({
+          type: 'done',
+          text: out,
+          meta: { ...baseMeta, done },
+        });
+        send({
+          type: 'meta',
+          done,
+          ...baseMeta,
+        });
+        doneSent = true;
       } catch (error: any) {
         send({ type: 'error', message: error?.message || 'Stream error' });
       } finally {
         if (!doneSent) {
-          send({ 
-            type: 'meta', 
-            done: state === 'compose_blessing',
-            state,
-            sidthieKey: sidthieKey ?? null,
-            userEmail: userEmail ?? null
+          const done = baseMeta.state === 'compose_blessing';
+          send({
+            type: 'meta',
+            done,
+            ...baseMeta,
           });
         }
         controller.close();
