@@ -376,10 +376,10 @@ export async function POST(req: Request) {
       request.tool_choice = 'auto';
     }
 
-    // Execute with retry logic
-    const openAIStream = await retryableRequest(() => 
-      client.responses.stream(request)
-    );
+
+    // Execute stream request (streams cannot be retried - they're long-lived connections)
+    const openAIStream = client.responses.stream(request);
+     
 
     const sseStream = openAiStreamToSSE(
       openAIStream, 
