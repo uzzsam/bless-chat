@@ -65,6 +65,28 @@ Output format:
 
 [Context question]
 
+
+// Add after the ask_context section:
+
+**If ask_email:**
+- User has provided context: {{USER_CONTEXT}}
+- Selected Sidthie: {{SIDTHIE_LABEL}} ({{SIDTHIE_KEY}})
+
+Respond warmly:
+"Before I craft your {{SIDTHIE_LABEL}} blessing, may I have your email? I'll send the blessing to you, along with deeper wisdom about {{SIDTHIE_LABEL}}."
+
+Do NOT create the blessing yet. Wait for the user's email.
+
+**If compose_blessing:**
+- User email: {{USER_EMAIL}}
+- [Rest of existing compose_blessing instructions...]
+
+
+
+
+
+
+
 **If compose_blessing:**
 - User chose: {{SIDTHIE_LABEL}} ({{SIDTHIE_KEY}})
 - User's name: {{USER_NAME}}
