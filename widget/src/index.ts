@@ -1,6 +1,13 @@
 /*
   Bless chat widget: mounts into a container that has data-chat-container attribute.
   Exposes global BlessChat with a mount helper for flexibility, otherwise auto-mounts on DOMContentLoaded.
+  
+  Optimizations:
+  - Updated Sidthie names (NIRALUMA→Bliss, OLANWELA→Health, RAKAWELA→Peace, MORASARA→Fortune)
+  - True token-by-token streaming
+  - Email capture before blessing
+  - Session-based daily limits (3 blessings)
+  - Error recovery with retry
 */
 
 type Role = 'user' | 'assistant';
@@ -44,7 +51,7 @@ function parseBooleanDataset(value?: string | null): boolean | undefined {
   return undefined;
 }
 
-// Base styles for the chat widget.  Additional styles for option buttons are appended below.
+// Base styles for the chat widget
 const STYLE_BLOCK = `
 :root {
   --bless-green-900: 23, 95, 75;
@@ -119,7 +126,6 @@ const STYLE_BLOCK = `
   color: rgba(var(--bless-cream-100), 0.96);
   font-size: clamp(1.02rem, 1vw + 0.9rem, 1.2rem);
   line-height: 1.6;
-  /* Align all message text to the left for improved readability */
   text-align: left;
   white-space: pre-line;
 }
@@ -137,6 +143,19 @@ const STYLE_BLOCK = `
   color: rgba(var(--bless-cream-100), 0.65);
   background: transparent;
   border: 1px solid rgba(255,255,255,0.16);
+}
+
+/* Streaming cursor effect */
+.bless-chat-bubble--streaming::after {
+  content: '▊';
+  animation: bless-cursor-blink 1s infinite;
+  color: rgba(var(--bless-cream-100), 0.5);
+  margin-left: 2px;
+}
+
+@keyframes bless-cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 
 .bless-chat-input-row {
@@ -164,7 +183,6 @@ const STYLE_BLOCK = `
   font-size: clamp(1.05rem, 2vw, 1.2rem);
   line-height: 1.4;
   padding: 0.75rem 0;
-  /* Remove default background or hover effects that could turn the input white */
   background-color: transparent !important;
   box-shadow: none !important;
 }
@@ -180,7 +198,6 @@ const STYLE_BLOCK = `
   box-shadow: none !important;
 }
 
-/* Ensure input remains transparent on hover and focus */
 .bless-chat-input:hover,
 .bless-chat-input:focus {
   background-color: transparent !important;
@@ -227,41 +244,83 @@ const STYLE_BLOCK = `
   text-align: center;
 }
 
-@media (max-width: 640px) {
-  .bless-chat-shell {
-    gap: 1.25rem;
-  }
-
-  .bless-chat-window {
-    border-radius: 32px;
-    padding: 1.4rem 1.3rem;
-  }
-
-  .bless-chat-window::after {
-    inset: 8px;
-    border-radius: 26px;
-  }
-
-  .bless-chat-bubble {
-    border-radius: 30px;
-    padding: 1.3rem 1.2rem;
-  }
-
-  .bless-chat-input-wrapper {
-    padding-left: 1.1rem;
-  }
-
-  .bless-chat-send {
-    width: 56px;
-    height: 56px;
-  }
-
-  .bless-chat-options {
-    grid-template-columns: 1fr;
-  }
+/* Email capture styles */
+.bless-chat-email-capture {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  border-radius: 32px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.24);
 }
 
-/* Additional styles for Sidthie option buttons */
+.bless-chat-email-label {
+  font-size: 1rem;
+  color: rgba(var(--bless-cream-100), 0.92);
+  text-align: center;
+}
+
+.bless-chat-email-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bless-chat-email-input {
+  flex: 1 1 200px;
+  padding: 0.8rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.24);
+  background: transparent;
+  color: rgba(var(--bless-cream-100), 0.92);
+  font-size: 1rem;
+}
+
+.bless-chat-email-input::placeholder {
+  color: rgba(var(--bless-cream-100), 0.45);
+}
+
+.bless-chat-email-input:focus {
+  outline: none;
+  border-color: rgba(255,255,255,0.35);
+}
+
+.bless-chat-email-button {
+  padding: 0.8rem 2rem;
+  border-radius: 999px;
+  border: none;
+  background: radial-gradient(circle at 30% 30%, rgba(var(--bless-gold-400),0.95), rgba(var(--bless-gold-400),0.82));
+  color: rgb(var(--bless-green-900));
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 180ms ease;
+}
+
+.bless-chat-email-button:hover {
+  transform: translateY(-2px);
+}
+
+/* Retry button */
+.bless-chat-retry {
+  padding: 0.75rem 1.75rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(var(--bless-gold-400), 0.92);
+  color: rgb(var(--bless-green-900));
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  margin: 1rem auto;
+  display: block;
+  transition: transform 180ms ease;
+}
+
+.bless-chat-retry:hover {
+  transform: translateY(-2px);
+}
+
+/* Sidthie option buttons */
 .bless-chat-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -286,6 +345,11 @@ const STYLE_BLOCK = `
 .bless-chat-option:focus {
   background: rgba(255,255,255,0.1);
   border-color: rgba(255,255,255,0.35);
+}
+
+.bless-chat-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .bless-chat-bubble--status.is-typing {
@@ -325,6 +389,48 @@ const STYLE_BLOCK = `
     transform: translateY(-3px);
   }
 }
+
+@media (max-width: 640px) {
+  .bless-chat-shell {
+    gap: 1.25rem;
+  }
+
+  .bless-chat-window {
+    border-radius: 32px;
+    padding: 1.4rem 1.3rem;
+  }
+
+  .bless-chat-window::after {
+    inset: 8px;
+    border-radius: 26px;
+  }
+
+  .bless-chat-bubble {
+    border-radius: 30px;
+    padding: 1.3rem 1.2rem;
+  }
+
+  .bless-chat-input-wrapper {
+    padding-left: 1.1rem;
+  }
+
+  .bless-chat-send {
+    width: 56px;
+    height: 56px;
+  }
+
+  .bless-chat-options {
+    grid-template-columns: 1fr;
+  }
+  
+  .bless-chat-email-row {
+    flex-direction: column;
+  }
+  
+  .bless-chat-email-button {
+    width: 100%;
+  }
+}
 `;
 
 const styleEl = document.createElement('style');
@@ -338,7 +444,7 @@ interface SidthieMeta {
   description: string;
 }
 
-// Around line 177, update the SIDTHIE_META object:
+// Updated Sidthie metadata with new names
 const SIDTHIE_META: Record<string, SidthieMeta> = {
   NALAMERA: {
     key: 'NALAMERA',
@@ -524,6 +630,15 @@ class BlessChatWidget {
   private currentStreamingText = '';
   private activeSidthie: SidthieMeta | null = null;
   private lastExplanation = '';
+  
+  // Email capture
+  private awaitingEmail = false;
+  private userEmail: string | null = null;
+  
+  // Daily limits
+  private blessingCount: number = 0;
+  private readonly MAX_BLESSINGS = 3;
+  private readonly STORAGE_KEY = 'bless-chat-session-count';
 
   constructor(container: HTMLElement, options?: WidgetOptions) {
     this.container = container;
@@ -536,10 +651,42 @@ class BlessChatWidget {
       requireBlessing: merged.requireBlessing
     };
     this.blessingDelivered = getSessionFlag(SESSION_KEY) === 'true';
+    this.blessingCount = this.getBlessingCount();
+    
     if (!this.options.requireBlessing && this.blessingDelivered) {
-      // When blessings are not required, treat the session as fresh.
       this.blessingDelivered = false;
     }
+  }
+  
+  // Blessing count helpers
+  private getBlessingCount(): number {
+    try {
+      const stored = sessionStorage.getItem(this.STORAGE_KEY);
+      return stored ? parseInt(stored, 10) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private incrementBlessingCount(): void {
+    this.blessingCount += 1;
+    try {
+      sessionStorage.setItem(this.STORAGE_KEY, this.blessingCount.toString());
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  private hasReachedLimit(): boolean {
+    return this.blessingCount >= this.MAX_BLESSINGS;
+  }
+  
+  private showLimitReached() {
+    this.pushAssistantMessage(
+      `Three blessings daily allows each to settle deeply. You have received ${this.blessingCount} blessing${this.blessingCount > 1 ? 's' : ''} this session. Close your browser to begin a new session, or return tomorrow for fresh blessings.`
+    );
+    this.inputEl.disabled = true;
+    this.sendBtn.disabled = true;
   }
 
   mount() {
@@ -616,8 +763,11 @@ class BlessChatWidget {
       }
     });
 
+    // Check conditions before starting
     if (this.blessingDelivered && this.options.requireBlessing) {
       this.pushAssistantMessage('Your blessing has already been crafted. Scroll to revisit it below.');
+    } else if (this.hasReachedLimit()) {
+      this.showLimitReached();
     } else {
       if (!this.options.requireBlessing) {
         setSessionFlag(SESSION_KEY, 'false');
@@ -653,15 +803,7 @@ class BlessChatWidget {
     await this.fetchAssistantReply();
   }
 
-  /**
-   * Render a message bubble to the UI. When the assistant sends a message that
-   * contains a numbered list of seven options, replace the bubble with interactive
-   * buttons so the user can tap to choose an intention.
-   */
   private appendMessage(message: Message, isStreaming = false) {
-    // Detect enumerated Sidthie list in assistant messages (not streaming).  If found,
-    // show buttons instead of plain text.  Insert newlines before numbers to catch
-    // cases where the model outputs them in a single line.
     if (message.role === 'assistant' && !isStreaming) {
       this.captureExplanation(message.content);
       const parsed = parseSidthieOptions(message.content);
@@ -683,6 +825,7 @@ class BlessChatWidget {
     this.scrollToBottom();
 
     if (message.role === 'assistant' && isStreaming) {
+      bubble.classList.add('bless-chat-bubble--streaming');
       this.currentStreamingNode = bubble;
       this.currentStreamingText = message.content;
     }
@@ -690,19 +833,15 @@ class BlessChatWidget {
 
   private captureExplanation(text?: string) {
     if (!text) return;
-    const QUESTION = 'Is the blessing for yourself or someone else? When you think of your Sidthie and the blessing, what feels most present at this moment?';
-    const idx = text.indexOf(QUESTION);
-    if (idx === -1) return;
-    const before = text.slice(0, idx).trim();
-    if (!before) return;
-    const paragraph = before.split(/\n\s*\n/)[0]?.trim();
-    if (paragraph) this.lastExplanation = paragraph;
+    const lines = text.split('\n\n');
+    if (lines.length > 0) {
+      const firstParagraph = lines[0].trim();
+      if (firstParagraph.length > 30 && firstParagraph.length < 300) {
+        this.lastExplanation = firstParagraph;
+      }
+    }
   }
 
-  /**
-   * Create a bubble containing a set of buttons for the seven Sidthies.  If an
-   * introductory sentence is provided, it is rendered above the buttons.
-   */
   private createOptionsBubble(options: string[], intro: string, metas?: SidthieMeta[]) {
     this.activeSidthie = null;
 
@@ -718,6 +857,7 @@ class BlessChatWidget {
     bubble.className = 'bless-chat-bubble';
     const container = document.createElement('div');
     container.className = 'bless-chat-options';
+    
     options.forEach((opt, index) => {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -737,10 +877,8 @@ class BlessChatWidget {
             /* ignore dispatch errors */
           }
         }
-        // When a user selects an option, record it and continue the conversation
         this.appendMessage({ role: 'user', content: opt });
         this.messages.push({ role: 'user', content: opt });
-        // Disable all options after selection
         container.querySelectorAll('button').forEach((b) => {
           (b as HTMLButtonElement).disabled = true;
         });
@@ -748,6 +886,7 @@ class BlessChatWidget {
       });
       container.appendChild(btn);
     });
+    
     bubble.appendChild(container);
     this.messageList.appendChild(bubble);
     this.scrollToBottom();
@@ -756,12 +895,15 @@ class BlessChatWidget {
   private updateStreamingBubble(delta: string) {
     if (!this.currentStreamingNode) return;
     this.currentStreamingText += delta;
+    // True token streaming - display immediately as received
     this.currentStreamingNode.textContent = this.currentStreamingText;
     this.scrollToBottom();
   }
 
   private finalizeStreamingBubble(finalText: string) {
     if (this.currentStreamingNode) {
+      this.currentStreamingNode.classList.remove('bless-chat-bubble--streaming');
+      
       const parsed = parseSidthieOptions(finalText);
       if (parsed) {
         this.messageList.removeChild(this.currentStreamingNode);
@@ -770,6 +912,7 @@ class BlessChatWidget {
         this.createOptionsBubble(parsed.options, parsed.intro);
         return;
       }
+      
       this.currentStreamingNode.textContent = finalText.trim();
     }
     this.currentStreamingNode = null;
@@ -819,14 +962,81 @@ class BlessChatWidget {
       this.messageList.scrollTop = this.messageList.scrollHeight;
     });
   }
+  
+  // Email validation helper
+  private isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+  
+  // Show email input UI
+  private showEmailInput() {
+    const emailContainer = document.createElement('div');
+    emailContainer.className = 'bless-chat-email-capture';
+    
+    const emailLabel = document.createElement('label');
+    emailLabel.className = 'bless-chat-email-label';
+    emailLabel.textContent = 'Enter your email to receive your blessing:';
+    
+    const emailInputWrapper = document.createElement('div');
+    emailInputWrapper.className = 'bless-chat-email-row';
+    
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.className = 'bless-chat-email-input';
+    emailInput.placeholder = 'your@email.com';
+    emailInput.required = true;
+    
+    const emailButton = document.createElement('button');
+    emailButton.type = 'button';
+    emailButton.className = 'bless-chat-email-button';
+    emailButton.textContent = 'Continue';
+    
+    emailButton.addEventListener('click', () => {
+      const email = emailInput.value.trim();
+      if (this.isValidEmail(email)) {
+        this.userEmail = email;
+        this.awaitingEmail = false;
+        emailContainer.remove();
+        
+        // Submit email as a message
+        this.appendMessage({ role: 'user', content: email });
+        this.messages.push({ role: 'user', content: email });
+        this.fetchAssistantReply();
+      } else {
+        this.setError('Please enter a valid email address.');
+      }
+    });
+    
+    emailInputWrapper.append(emailInput, emailButton);
+    emailContainer.append(emailLabel, emailInputWrapper);
+    this.messageList.appendChild(emailContainer);
+    this.scrollToBottom();
+    
+    emailInput.focus();
+  }
+  
+  // Retry button helper
+  private showRetryButton() {
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'bless-chat-retry';
+    retryBtn.textContent = 'Try again';
+    retryBtn.addEventListener('click', () => {
+      retryBtn.remove();
+      this.fetchAssistantReply();
+    });
+    this.messageList.appendChild(retryBtn);
+    this.scrollToBottom();
+  }
 
   private async fetchAssistantReply() {
     this.isProcessing = true;
-   this.sendBtn.disabled = true;
-   this.setError();
+    this.sendBtn.disabled = true;
+    this.setError();
     this.setStatus(this.options.loadingText, true);
 
     const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
     try {
       const response = await fetch(this.options.apiUrl, {
@@ -835,6 +1045,8 @@ class BlessChatWidget {
         body: JSON.stringify({ messages: this.messages }),
         signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const data = await safeJson(response);
@@ -857,9 +1069,20 @@ class BlessChatWidget {
         }
       }
     } catch (error: any) {
+      clearTimeout(timeoutId);
+      
       console.error('Bless chat error', error);
-      this.setError(error?.message || 'Something went wrong. Please try again.');
-      this.pushAssistantMessage('I could not continue the conversation. Let us try once more when you are ready.');
+      
+      // User-friendly error messages
+      let errorMessage = 'Something went wrong. Please try again.';
+      if (error.name === 'AbortError') {
+        errorMessage = 'The response took too long. Let us try once more.';
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      this.setError(errorMessage);
+      this.showRetryButton();
     } finally {
       this.setStatus();
       this.isProcessing = false;
@@ -877,7 +1100,7 @@ class BlessChatWidget {
 
     let doneFlag = false;
     let aggregated = '';
-    let finalMeta: { state?: string; sidthieKey?: string | null } | null = null;
+    let finalMeta: { state?: string; sidthieKey?: string | null; userEmail?: string | null } | null = null;
 
     this.appendMessage({ role: 'assistant', content: '' }, true);
 
@@ -920,6 +1143,10 @@ class BlessChatWidget {
           finalMeta = payload.meta || null;
           doneFlag = finalMeta?.state === 'compose_blessing';
         } else if (payload.type === 'meta' && typeof payload.done === 'boolean') {
+          // Check if we need to show email input
+          if (payload.state === 'ask_email') {
+            this.awaitingEmail = true;
+          }
           doneFlag = payload.done;
         } else if (payload.type === 'error') {
           throw new Error(payload.message || 'Unexpected error');
@@ -932,13 +1159,25 @@ class BlessChatWidget {
     const output = cleaned || resolved;
     this.finalizeStreamingBubble(output);
     this.messages.push({ role: 'assistant', content: output });
-    this.onAssistantComplete(output, doneFlag, finalMeta || undefined);
+    
+    // Show email input if needed
+    if (this.awaitingEmail) {
+      this.showEmailInput();
+    } else {
+      this.onAssistantComplete(output, doneFlag, finalMeta || undefined);
+    }
   }
 
-  private onAssistantComplete(text: string, done: boolean, finalMeta?: { state?: string; sidthieKey?: string | null }) {
+  private onAssistantComplete(
+    text: string, 
+    done: boolean, 
+    finalMeta?: { state?: string; sidthieKey?: string | null; userEmail?: string | null }
+  ) {
     if (!text) return;
 
     if (done) {
+      this.incrementBlessingCount();
+      
       const prepared = this.prepareBlessing(text);
       const blessing = prepared.blessing || prepared.raw || text.trim();
       this.blessingDelivered = true;
@@ -950,9 +1189,11 @@ class BlessChatWidget {
       }
 
       this.displayBlessing(blessing, finalMeta);
+      
       const active = this.activeSidthie;
       const rawFeeling = (this.lastExplanation || '').replace(/\s+$/, '');
       const feelingSnippet = rawFeeling.split(/[.!?]/).map(part => part.trim()).filter(Boolean)[0] || '';
+      
       const closingParts: string[] = [];
       if (active) {
         closingParts.push(`The blessing of ${active.label} is woven around you now.`);
@@ -966,11 +1207,57 @@ class BlessChatWidget {
         closingParts.push('Follow the glow below to receive it.');
       }
       this.pushAssistantMessage(closingParts.join(' '));
+      
+      // Add count message
+      const remainingBlessings = this.MAX_BLESSINGS - this.blessingCount;
+      if (remainingBlessings > 0) {
+        this.pushAssistantMessage(
+          `This blessing is now with you. You may receive ${remainingBlessings} more blessing${remainingBlessings > 1 ? 's' : ''} this session.`
+        );
+      } else {
+        this.pushAssistantMessage(
+          `This completes your three blessings for this session. Each blessing needs time to settle. Close your browser to begin a new session, or return tomorrow.`
+        );
+        this.inputEl.disabled = true;
+        this.sendBtn.disabled = true;
+      }
+      
+      // Send blessing via email if we have it
+      if (this.userEmail && blessing) {
+        this.sendBlessingEmail(blessing, finalMeta);
+      }
+      
       return;
     }
 
     if (/image|upload|photo|picture/i.test(text)) {
       this.pushAssistantMessage('No image is needed. Let us continue in words.');
+    }
+  }
+  
+  private async sendBlessingEmail(
+    blessing: string, 
+    finalMeta?: { state?: string; sidthieKey?: string | null; userEmail?: string | null }
+  ) {
+    try {
+      const response = await fetch('/api/send-blessing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: this.userEmail,
+          blessing,
+          sidthieKey: this.activeSidthie?.key || finalMeta?.sidthieKey || null,
+          sidthieLabel: this.activeSidthie?.label || null,
+          explanation: this.lastExplanation || this.activeSidthie?.description || null,
+          userName: null, // Could extract from messages if needed
+        }),
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to send blessing email');
+      }
+    } catch (error) {
+      console.error('Error sending blessing email:', error);
     }
   }
 
@@ -998,7 +1285,10 @@ class BlessChatWidget {
     };
   }
 
-  private displayBlessing(blessing: string, finalMeta?: { state?: string; sidthieKey?: string | null }) {
+  private displayBlessing(
+    blessing: string, 
+    finalMeta?: { state?: string; sidthieKey?: string | null; userEmail?: string | null }
+  ) {
     let meta = this.activeSidthie;
     if (!meta && finalMeta?.sidthieKey) {
       meta = findSidthieByKey(finalMeta.sidthieKey);
@@ -1022,6 +1312,7 @@ class BlessChatWidget {
     };
 
     this.renderBlessingPanel({ blessing, explanation, sidthieLabel: detail.sidthieLabel ?? undefined });
+    
     if (meta) {
       try {
         window.dispatchEvent(
@@ -1033,9 +1324,9 @@ class BlessChatWidget {
         /* ignore dispatch errors */
       }
     }
+    
     window.dispatchEvent(new CustomEvent('blessing:ready', { detail }));
     window.dispatchEvent(new CustomEvent('blessing:update', { detail }));
-
   }
 
   private renderBlessingPanel(detail: {
