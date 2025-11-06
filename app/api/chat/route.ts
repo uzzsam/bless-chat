@@ -356,7 +356,6 @@ const client = createOpenAIClient();
     const request: any = {
       model: MODEL,
       input,
-      max_output_tokens: currentState.state === 'compose_blessing' ? 200 : 100,
     };
 
     if (tools) {
