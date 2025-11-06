@@ -33,9 +33,7 @@ const ALLOWED_ORIGINS = RAW_ALLOWED_ORIGIN
 const ALLOW_ALL_ORIGINS = ALLOWED_ORIGINS.includes('*');
 const VECTOR_STORE_ID = resolveVectorStoreId();
 
-// Retry configuration
-const MAX_RETRIES = 2;
-const RETRY_DELAY = 1000;
+// Retry configuration removed
 
 // Session state tracking
 interface SessionState {
@@ -309,21 +307,8 @@ function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
   });
 }
 
-// Retry helper
-async function retryableRequest<T>(
-  fn: () => Promise<T>,
-  retries: number = MAX_RETRIES
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (retries > 0) {
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-      return retryableRequest(fn, retries - 1);
-    }
-    throw error;
-  }
-}
+// Retry helper removed
+
 
 // Main POST handler
 export async function POST(req: Request) {
@@ -378,7 +363,7 @@ export async function POST(req: Request) {
 
 
     // Execute stream request (streams cannot be retried - they're long-lived connections)
-    const openAIStream = client.responses.stream(request);
+      const openAIStream = client.responses.stream(request);
      
 
     const sseStream = openAiStreamToSSE(
