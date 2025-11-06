@@ -324,18 +324,27 @@ export async function POST(req: Request) {
     const previousState = extractStateFromMessages(messages as Msg[]);
     const currentState = determineNextState(messages as Msg[], previousState);
 
-    // Build input with static base prompt + dynamic controller
-    const input: any[] = [
-      { role: 'system', content: BASE_PERSONA_PROMPT }, // Gets cached by OpenAI
-      { role: 'system', content: buildControllerMessage(currentState, messages as Msg[]) },
-    ];
+   // Build input with static base prompt + dynamic controller
+const input: any[] = [
+  { role: 'system', content: BASE_PERSONA_PROMPT }, // Gets cached by OpenAI
+  { role: 'system', content: buildControllerMessage(currentState, messages as Msg[]) },
+];
 
-    // Add existing messages
-    for (const m of messages as Msg[]) {
-      input.push({ role: m.role, content: m.content });
-    }
+// Add existing messages
+for (const m of messages as Msg[]) {
+  input.push({ role: m.role, content: m.content });
+}
 
-    const client = createOpenAIClient();
+// CRITICAL FIX: If no user messages, OpenAI needs a trigger to respond
+const hasUserMessage = (messages as Msg[]).some(m => m.role === 'user');
+if (!hasUserMessage) {
+  input.push({ 
+    role: 'user', 
+    content: 'Hello' 
+  });
+}
+
+const client = createOpenAIClient();
 
     // Tiered vector search - only when needed
     const useVectorSearch = shouldUseVectorSearch(currentState.state) && VECTOR_STORE_ID;
