@@ -8,8 +8,6 @@ import {
   SIDTHIES,
   SIDTHIE_KEYS, 
   SIDTHIE_LABELS,
-  findSidthieByKey,
-  findSidthieByLabel,
   getRandomVariation, 
   injectVariables,
   GREETING_VARIATIONS,
@@ -32,8 +30,6 @@ const ALLOWED_ORIGINS = RAW_ALLOWED_ORIGIN
   .filter(Boolean);
 const ALLOW_ALL_ORIGINS = ALLOWED_ORIGINS.includes('*');
 const VECTOR_STORE_ID = resolveVectorStoreId();
-
-// Retry configuration removed
 
 // Session state tracking
 interface SessionState {
@@ -307,9 +303,6 @@ function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
   });
 }
 
-// Retry helper removed
-
-
 // Main POST handler
 export async function POST(req: Request) {
   const origin = req.headers.get('origin');
@@ -337,6 +330,7 @@ export async function POST(req: Request) {
       { role: 'system', content: buildControllerMessage(currentState, messages as Msg[]) },
     ];
 
+    // Add existing messages
     for (const m of messages as Msg[]) {
       input.push({ role: m.role, content: m.content });
     }
@@ -361,10 +355,8 @@ export async function POST(req: Request) {
       request.tool_choice = 'auto';
     }
 
-
-    // Execute stream request (streams cannot be retried - they're long-lived connections)
-      const openAIStream = client.responses.stream(request);
-     
+    // Execute stream request
+    const openAIStream = client.responses.stream(request);
 
     const sseStream = openAiStreamToSSE(
       openAIStream, 
@@ -410,6 +402,7 @@ type OpenAIStream = AsyncIterable<any> & {
   finalResponse: () => Promise<any>;
 };
 
+// FIXED: Use old working streaming logic that properly handles Responses API events
 function openAiStreamToSSE(
   stream: OpenAIStream, 
   state: string, 
@@ -418,7 +411,7 @@ function openAiStreamToSSE(
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let aggregated = '';
-  let emittedDelta = false;
+  let doneSent = false;
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -432,20 +425,18 @@ function openAiStreamToSSE(
         for await (const event of stream) {
           switch (event?.type) {
             case 'response.output_text.delta': {
-              const delta = event?.delta ?? event?.text_delta ?? '';
+              const delta = event.delta ?? '';
               if (delta) {
                 aggregated += delta;
-                emittedDelta = true;
-                send({ type: 'delta', textDelta: delta });
+                send({ type: 'response.output_text.delta', textDelta: delta });
               }
               break;
             }
             case 'response.delta': {
-              const delta = event?.delta;
+              const delta = event.delta;
               if (typeof delta === 'string' && delta) {
                 aggregated += delta;
-                emittedDelta = true;
-                send({ type: 'delta', textDelta: delta });
+                send({ type: 'response.delta', delta });
               }
               break;
             }
@@ -465,26 +456,40 @@ function openAiStreamToSSE(
           final?.output?.[0]?.content?.find((item: any) => item.type === 'output_text')?.text ??
           aggregated;
 
-        if (!emittedDelta && typeof text === 'string') {
+        if (typeof text === 'string' && text.trim()) {
           const out = text.trim();
-          if (out) {
-            aggregated = out;
-            emittedDelta = true;
-            send({ type: 'delta', textDelta: out });
-          }
-        }
-
-        send({ 
-          type: 'done', 
-          meta: { 
-            state, 
+          const done = state === 'compose_blessing';
+          send({ type: 'final', text: out, done });
+          send({ 
+            type: 'meta', 
+            done,
+            state,
             sidthieKey: sidthieKey ?? null,
             userEmail: userEmail ?? null
-          } 
-        });
+          });
+          doneSent = true;
+        } else {
+          send({ 
+            type: 'meta', 
+            done: state === 'compose_blessing',
+            state,
+            sidthieKey: sidthieKey ?? null,
+            userEmail: userEmail ?? null
+          });
+          doneSent = true;
+        }
       } catch (error: any) {
         send({ type: 'error', message: error?.message || 'Stream error' });
       } finally {
+        if (!doneSent) {
+          send({ 
+            type: 'meta', 
+            done: state === 'compose_blessing',
+            state,
+            sidthieKey: sidthieKey ?? null,
+            userEmail: userEmail ?? null
+          });
+        }
         controller.close();
       }
     },
