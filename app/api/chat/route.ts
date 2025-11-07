@@ -1,6 +1,6 @@
 /* app/api/chat/route.ts
    Vercel Edge route: Responses API → SSE streaming
-   Fixed: Simplified flow - removed ask_email state, email capture happens AFTER blessing
+   FIXED: Added ask_who state, proper flow transitions
 */
 import { createOpenAIClient, resolveModel, resolveVectorStoreId } from '@/lib/openai';
 import { buildSystemMessage, BASE_PERSONA_PROMPT } from '@/lib/prompts';
@@ -12,6 +12,7 @@ import {
   injectVariables,
   GREETING_VARIATIONS,
   NAME_REQUEST_VARIATIONS,
+  WHO_QUESTION_VARIATIONS,
   SIDTHIE_SELECTION_VARIATIONS,
   CONTEXT_QUESTION_VARIATIONS
 } from '@/lib/sidthies';
@@ -31,10 +32,11 @@ const ALLOWED_ORIGINS = RAW_ALLOWED_ORIGIN
 const ALLOW_ALL_ORIGINS = ALLOWED_ORIGINS.includes('*');
 const VECTOR_STORE_ID = resolveVectorStoreId();
 
-// Session state tracking - SIMPLIFIED: Removed ask_email
+// Session state tracking - FIXED: Added ask_who state
 interface SessionState {
-  state: 'ask_name' | 'ask_intent' | 'ask_context' | 'compose_blessing';
+  state: 'ask_name' | 'ask_who' | 'ask_intent' | 'ask_context' | 'compose_blessing';
   userName?: string;
+  blessingFor?: string;
   sidthieKey?: string;
   sidthieLabel?: string;
   messageCount: number;
@@ -161,7 +163,7 @@ function detectIntent(messages: Msg[]): { key?: string; label?: string } {
   return {};
 }
 
-// State machine - SIMPLIFIED: Removed ask_email state
+// State machine - FIXED: Added ask_who state
 function determineNextState(
   messages: Msg[], 
   currentState: SessionState | null
@@ -181,12 +183,26 @@ function determineNextState(
   // State transition logic (deterministic)
   switch (currentState.state) {
     case 'ask_name':
-      // User provided name, move to intent selection
+      // User provided name, move to asking who blessing is for
       if (userCount > currentState.messageCount) {
         const userName = extractName(messages);
         return {
-          state: 'ask_intent',
+          state: 'ask_who',
           userName: userName || currentState.userName,
+          messageCount: userCount,
+          lastUpdated: Date.now(),
+        };
+      }
+      return currentState;
+      
+    case 'ask_who':
+      // User said who blessing is for, move to intent selection
+      if (userCount > currentState.messageCount) {
+        const blessingFor = lastUserMessage(messages);
+        return {
+          state: 'ask_intent',
+          userName: currentState.userName,
+          blessingFor: blessingFor || undefined,
           messageCount: userCount,
           lastUpdated: Date.now(),
         };
@@ -201,6 +217,7 @@ function determineNextState(
           return {
             state: 'ask_context',
             userName: currentState.userName,
+            blessingFor: currentState.blessingFor,
             sidthieKey: key,
             sidthieLabel: label,
             messageCount: userCount,
@@ -211,11 +228,12 @@ function determineNextState(
       return currentState;
       
     case 'ask_context':
-      // User provided context, move DIRECTLY to blessing (no email)
+      // User provided context, move to blessing
       if (userCount > currentState.messageCount) {
         return {
           state: 'compose_blessing',
           userName: currentState.userName,
+          blessingFor: currentState.blessingFor,
           sidthieKey: currentState.sidthieKey,
           sidthieLabel: currentState.sidthieLabel,
           messageCount: userCount,
@@ -237,13 +255,15 @@ function determineNextState(
 function shouldUseVectorSearch(state: string): boolean {
   switch (state) {
     case 'ask_name':
-      return false; // Pre-written greetings, no knowledge needed
+      return false;
+    case 'ask_who':
+      return false;
     case 'ask_intent':
-      return false; // Just listing Sidthies, no knowledge needed
+      return false;
     case 'ask_context':
-      return true; // Need Sidthie knowledge for mystical elaboration
+      return true;
     case 'compose_blessing':
-      return true; // Need full knowledge for blessing creation
+      return true;
     default:
       return false;
   }
@@ -251,13 +271,16 @@ function shouldUseVectorSearch(state: string): boolean {
 
 // Build controller message with pre-selected variations
 function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
-  // Select random variations for this conversation turn
   const greetingText = currentState.state === 'ask_name' 
     ? getRandomVariation(GREETING_VARIATIONS) 
     : undefined;
     
   const nameRequestText = currentState.state === 'ask_name'
     ? getRandomVariation(NAME_REQUEST_VARIATIONS)
+    : undefined;
+    
+  const whoQuestionText = currentState.state === 'ask_who' && currentState.userName
+    ? injectVariables(getRandomVariation(WHO_QUESTION_VARIATIONS), { NAME: currentState.userName })
     : undefined;
     
   const selectionText = currentState.state === 'ask_intent' && currentState.userName
@@ -273,11 +296,13 @@ function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
   return buildSystemMessage({
     state: currentState.state,
     userName: currentState.userName,
+    blessingFor: currentState.blessingFor,
     sidthieKey: currentState.sidthieKey,
     sidthieLabel: currentState.sidthieLabel,
     userContext: lastUserMessage(messages),
     greetingText,
     nameRequestText,
+    whoQuestionText,
     selectionText,
     contextQuestionText,
   });
@@ -300,35 +325,30 @@ export async function POST(req: Request) {
       return jsonError(400, 'Body must contain { messages: Array<{role, content}> }', origin);
     }
 
-    // Determine current state (explicit tracking, no derivation)
+    // Determine current state
     const previousState = extractStateFromMessages(messages as Msg[]);
     const currentState = determineNextState(messages as Msg[], previousState);
 
-    // Build input with static base prompt + dynamic controller
+    // Build input
     const input: any[] = [
-      { role: 'system', content: BASE_PERSONA_PROMPT }, // Gets cached by OpenAI
+      { role: 'system', content: BASE_PERSONA_PROMPT },
       { role: 'system', content: buildControllerMessage(currentState, messages as Msg[]) },
     ];
 
-    // Add existing messages
     for (const m of messages as Msg[]) {
       input.push({ role: m.role, content: m.content });
     }
 
-    // CRITICAL FIX: If no user messages, OpenAI needs a trigger to respond
+    // If no user messages, trigger response
     const hasUserMessage = (messages as Msg[]).some(m => m.role === 'user');
     if (!hasUserMessage) {
-      input.push({ 
-        role: 'user', 
-        content: 'Hello' 
-      });
+      input.push({ role: 'user', content: 'Hello' });
     }
 
     const client = createOpenAIClient();
 
-    // Tiered vector search - only when needed
+    // Tiered vector search
     const useVectorSearch = shouldUseVectorSearch(currentState.state) && VECTOR_STORE_ID;
-
     const tools = useVectorSearch
       ? [{ type: 'file_search' as const, vector_store_ids: [VECTOR_STORE_ID] }]
       : undefined;
@@ -343,9 +363,8 @@ export async function POST(req: Request) {
       request.tool_choice = 'auto';
     }
 
-    // Execute stream request
+    // Execute stream
     const openAIStream = client.responses.stream(request);
-
     const sseStream = openAiStreamToSSE(openAIStream, currentState);
 
     return new Response(sseStream, {
@@ -363,7 +382,6 @@ export async function POST(req: Request) {
       timestamp: new Date().toISOString(),
     });
     
-    // User-friendly error messages
     const userMessage = err?.message?.includes('rate limit')
       ? 'The wisdom flows slowly right now. Please try again in a moment.'
       : err?.message || 'I encountered a moment of silence. Let us try once more.';
@@ -385,7 +403,7 @@ type OpenAIStream = AsyncIterable<any> & {
   finalResponse: () => Promise<any>;
 };
 
-// Streaming function - simplified meta data
+// Streaming function
 function openAiStreamToSSE(
   stream: OpenAIStream,
   sessionState: SessionState
@@ -403,6 +421,7 @@ function openAiStreamToSSE(
     sidthieKey: stateSnapshot.sidthieKey ?? null,
     sidthieLabel: stateSnapshot.sidthieLabel ?? null,
     userName: stateSnapshot.userName ?? null,
+    blessingFor: stateSnapshot.blessingFor ?? null,
     messageCount: stateSnapshot.messageCount ?? 0,
     marker,
   };

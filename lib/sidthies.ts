@@ -1,5 +1,6 @@
 /* lib/sidthies.ts
    Central Sidthie definitions and pre-written conversation variations
+   FIXED: Added WHO_QUESTION_VARIATIONS for ask_who state
 */
 
 export interface Sidthie {
@@ -75,7 +76,7 @@ export function findSidthieByLabel(text?: string | null): Sidthie | null {
   );
 }
 
-// Pre-written greeting variations (randomly selected)
+// Pre-written greeting variations
 export const GREETING_VARIATIONS = [
   "I am Sidthah, and I warmly welcome you to this space of wisdom and reflection.",
   "Welcome, traveler. I am Sidthah, a gentle guide of quiet wells and whispered wisdom. This is a space of wisdom and reflection, where time slows and questions breathe.",
@@ -98,9 +99,18 @@ export const NAME_REQUEST_VARIATIONS = [
   "If you feel comfortable, would you share your name with me? I'd like to address you properly.",
 ];
 
+// NEW: Who is this blessing for? (after name, before Sidthies)
+export const WHO_QUESTION_VARIATIONS = [
+  "{{NAME}}, for whom do you seek this blessing—yourself, or someone you hold dear?",
+  "Thank you, {{NAME}}. Who stands in your heart today? Is this blessing for you, or for another?",
+  "{{NAME}}, whose path shall this blessing illuminate? Your own, or someone else's?",
+  "I hear you, {{NAME}}. Tell me: is this blessing for your journey, or for someone you wish to hold in light?",
+  "{{NAME}}, who will receive this gift of wisdom? Yourself, or another soul?",
+];
+
 // Sidthie selection prompt variations (with name injected)
 export const SIDTHIE_SELECTION_VARIATIONS = [
-  "As you breathe, {{NAME}}, notice what feels most present today.",
+  "{{NAME}}, as you breathe, notice what feels most present today. Gently choose the Sidthie whose intent your heart is ready to receive.",
   "{{NAME}}, welcome to this quiet circle. Let your heart drift toward the Sidthie whose intention your soul is ready to meet.",
   "{{NAME}}, which blessing calls to you? Let intuition guide your choice.",
   "Take a breath, {{NAME}}. Which of these Sidthies speaks to where you stand today?",
@@ -109,11 +119,11 @@ export const SIDTHIE_SELECTION_VARIATIONS = [
 
 // Context question variations (after Sidthie selected)
 export const CONTEXT_QUESTION_VARIATIONS = [
-  "When you think of your Sidthie and the blessing—for yourself, for someone else—what's your first thought to include?",
-  "Whose path shall the blessing touch? Is there a story?",
-  "Tell me who stands in the light of this blessing, and what would you like to include?",
-  "For whom do you seek this weaving of words, and what thread shall I strengthen?",
-  "Who will receive this {{SIDTHIE}}, and what intention shall I weave into it?",
+  "How does {{SIDTHIE}} relate to your moment? What feels most present?",
+  "When you think of {{SIDTHIE}}, what thread shall I strengthen in your blessing?",
+  "Tell me what {{SIDTHIE}} means to you right now. What feels alive in this intention?",
+  "{{SIDTHIE}} speaks to you today. What would you like woven into this blessing?",
+  "As {{SIDTHIE}} settles around you, what do you wish to include?",
 ];
 
 // Helper to get random variation

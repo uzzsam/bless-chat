@@ -148,17 +148,25 @@ const STYLE_BLOCK = `
   border: 1px solid rgba(255,255,255,0.16);
 }
 
-/* Streaming cursor effect */
-.bless-chat-bubble--streaming::after {
-  content: '▊';
-  animation: bless-cursor-blink 1s infinite;
-  color: rgba(var(--bless-cream-100), 0.5);
-  margin-left: 2px;
+/* Streaming indicator - using dots only, no cursor square */
+.bless-chat-bubble--streaming {
+  position: relative;
 }
 
-@keyframes bless-cursor-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
+.bless-chat-bubble--streaming::after {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: rgba(var(--bless-cream-100), 0.75);
+  animation: bless-streaming-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes bless-streaming-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
 }
 
 .bless-chat-input-row {
@@ -1178,6 +1186,16 @@ class BlessChatWidget {
     
     window.dispatchEvent(new CustomEvent('blessing:ready', { detail }));
     window.dispatchEvent(new CustomEvent('blessing:update', { detail }));
+    
+    // Auto-scroll to reveal blessing panel
+    setTimeout(() => {
+      this.scrollToBottom();
+      // Also try to scroll the main page to the blessing section
+      const blessingPanel = document.querySelector('[data-bless-panel], .bless-blessing__panel, #bless-blessing__panel');
+      if (blessingPanel) {
+        blessingPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 300);
   }
 
   private renderBlessingPanel(detail: {
@@ -1251,12 +1269,19 @@ class BlessChatWidget {
           }
         }
         if (signupInput) {
-          signupInput.value = detail.sidthieLabel || '';
+        signupInput.value = detail.sidthieLabel || '';
         }
-        signup.removeAttribute('hidden');
-      }
-    });
-  }
+        // Ensure signup is visible
+          signup.removeAttribute('hidden');
+            signup.style.display = '';
+    }
+    
+    // Dispatch update event to sync with Shopify section
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('blessing:sync', { detail: { blessing: detail.blessing, sidthieLabel: detail.sidthieLabel, explanation: detail.explanation } }));
+    }, 100);
+  });
+}
 }
 
 function safeJson(response: Response) {
