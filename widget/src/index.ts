@@ -684,7 +684,7 @@ class BlessChatWidget {
   private collectedEmail: string | null = null;
   private awaitingEmail = false;
   private readonly N8N_WEBHOOK_URL = 'https://n8n.theexperiencen8n.top/webhook-test/951bd832-961c-4f19-a263-96632039cd07';
-  private readonly THANK_YOU_PAGE = '/pages/thank-you';
+  private readonly THANK_YOU_PAGE = '/pages/thanks';
   
   // Daily limits
   private blessingCount: number = 0;
