@@ -1,6 +1,6 @@
 /*
   Bless chat widget: mounts into a container that has data-chat-container attribute.
-  FIXED: Removed email capture from chat flow, simplified loading states, updated blessing messages
+  Email collection integrated in chat flow before blessing reveal
 */
 
 type Role = 'user' | 'assistant';
@@ -104,7 +104,7 @@ const STYLE_BLOCK = `
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
-  max-height: min(55vh, 500px);
+  max-height: min(70vh, 700px);
   overflow-y: auto;
   padding-right: 0.5rem;
 }
@@ -378,6 +378,106 @@ const STYLE_BLOCK = `
     grid-template-columns: 1fr;
   }
 }
+
+/* Email input bubble */
+.bless-chat-email-bubble {
+  padding: 1.2rem !important;
+}
+
+.bless-chat-email-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bless-chat-email-wrapper {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.bless-chat-email-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.15);
+  color: rgba(var(--bless-cream-100), 0.92);
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.bless-chat-email-input::placeholder {
+  color: rgba(var(--bless-cream-100), 0.45);
+}
+
+.bless-chat-email-input:focus {
+  outline: none;
+  border-color: rgba(var(--bless-gold-400), 0.6);
+  background: rgba(255,255,255,0.2);
+}
+
+.bless-chat-email-submit {
+  padding: 0.75rem 1.5rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(var(--bless-gold-400), 0.92);
+  color: rgb(var(--bless-green-900));
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 180ms ease, background-color 180ms ease;
+  white-space: nowrap;
+}
+
+.bless-chat-email-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(var(--bless-gold-400), 1);
+}
+
+.bless-chat-email-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.bless-chat-email-error {
+  font-size: 0.9rem;
+  color: rgba(255, 129, 100, 0.95);
+  padding: 0.25rem 0;
+}
+
+/* Preview bubble */
+.bless-chat-preview {
+  position: relative;
+}
+
+.bless-chat-preview--truncated::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, transparent, rgba(var(--bless-cream-100), 0.1));
+  pointer-events: none;
+}
+
+.bless-chat-error-bubble {
+  background: rgba(255, 129, 100, 0.15);
+  border-color: rgba(255, 129, 100, 0.3);
+}
+
+@media (max-width: 640px) {
+  .bless-chat-email-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .bless-chat-email-submit {
+    width: 100%;
+  }
+}
 `;
 
 const styleEl = document.createElement('style');
@@ -577,6 +677,14 @@ class BlessChatWidget {
   private currentStreamingText = '';
   private activeSidthie: SidthieMeta | null = null;
   private lastExplanation = '';
+  
+  // Email collection state
+  private pendingBlessing: string | null = null;
+  private pendingBlessingMeta: StreamMeta | null = null;
+  private collectedEmail: string | null = null;
+  private awaitingEmail = false;
+  private readonly N8N_WEBHOOK_URL = 'https://n8n.theexperiencen8n.top/webhook-test/951bd832-961c-4f19-a263-96632039cd07';
+  private readonly THANK_YOU_PAGE = '/pages/thank-you';
   
   // Daily limits
   private blessingCount: number = 0;
@@ -1095,18 +1203,19 @@ class BlessChatWidget {
       
       const prepared = this.prepareBlessing(text);
       const blessing = prepared.blessing || prepared.raw || text.trim();
-      this.blessingDelivered = true;
-      setSessionFlag(SESSION_KEY, 'true');
+      
+      // Store blessing for later use (after email collection)
+      this.pendingBlessing = blessing;
+      this.pendingBlessingMeta = finalMeta || null;
 
+      // Remove the full blessing from display
       const last = this.messageList.lastElementChild;
       if (last && last.classList.contains('bless-chat-bubble')) {
         this.messageList.removeChild(last);
       }
 
-      this.displayBlessing(blessing, finalMeta);
-      
-      // FIXED: Changed blessing message
-      this.pushAssistantMessage('Your blessing has been created. Scroll down to read it.');
+      // Show preview and ask for email
+      this.showBlessingPreviewAndAskEmail(blessing, finalMeta);
       
       return;
     }
@@ -1114,6 +1223,226 @@ class BlessChatWidget {
     if (/image|upload|photo|picture/i.test(text)) {
       this.pushAssistantMessage('No image is needed. Let us continue in words.');
     }
+  }
+
+  private extractBlessingPreview(blessing: string): string {
+    // Extract first 1-2 sentences, max ~150 chars
+    const sentences = blessing.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    if (!sentences.length) return blessing.slice(0, 150);
+    
+    let preview = sentences[0].trim();
+    if (preview.length < 80 && sentences.length > 1) {
+      preview += '. ' + sentences[1].trim();
+    }
+    
+    // Limit to ~150 characters
+    if (preview.length > 150) {
+      preview = preview.slice(0, 147) + '...';
+    }
+    
+    return preview;
+  }
+
+  private showBlessingPreviewAndAskEmail(blessing: string, meta?: StreamMeta) {
+    // Extract and show preview
+    const preview = this.extractBlessingPreview(blessing);
+    const previewBubble = document.createElement('div');
+    previewBubble.className = 'bless-chat-bubble bless-chat-preview bless-chat-preview--truncated';
+    previewBubble.textContent = preview + '...';
+    this.messageList.appendChild(previewBubble);
+    this.scrollToBottom();
+    
+    // Ask for email
+    this.awaitingEmail = true;
+    this.inputEl.disabled = true;
+    this.sendBtn.disabled = true;
+    
+    setTimeout(() => {
+      this.pushAssistantMessage("What's your email so I can send you the complete blessing?");
+      this.createEmailInputBubble();
+    }, 800);
+  }
+
+  private createEmailInputBubble() {
+    const bubble = document.createElement('div');
+    bubble.className = 'bless-chat-bubble bless-chat-email-bubble';
+    
+    const form = document.createElement('form');
+    form.className = 'bless-chat-email-form';
+    
+    const inputWrapper = document.createElement('div');
+    inputWrapper.className = 'bless-chat-email-wrapper';
+    
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.className = 'bless-chat-email-input';
+    emailInput.placeholder = 'Enter your email';
+    emailInput.required = true;
+    emailInput.autocomplete = 'email';
+    
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.className = 'bless-chat-email-submit';
+    submitBtn.textContent = 'Receive blessing';
+    
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'bless-chat-email-error';
+    errorMsg.hidden = true;
+    
+    inputWrapper.appendChild(emailInput);
+    inputWrapper.appendChild(submitBtn);
+    form.appendChild(inputWrapper);
+    form.appendChild(errorMsg);
+    bubble.appendChild(form);
+    
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+      
+      if (!this.validateEmail(email)) {
+        errorMsg.textContent = 'Please enter a valid email address';
+        errorMsg.hidden = false;
+        emailInput.focus();
+        return;
+      }
+      
+      errorMsg.hidden = true;
+      emailInput.disabled = true;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving...';
+      
+      await this.handleEmailSubmission(email);
+    });
+    
+    this.messageList.appendChild(bubble);
+    this.scrollToBottom();
+    emailInput.focus();
+  }
+
+  private validateEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  private async handleEmailSubmission(email: string) {
+    if (!this.pendingBlessing) {
+      this.pushAssistantMessage('Something went wrong. Please refresh and try again.');
+      return;
+    }
+    
+    try {
+      // Send to N8N
+      const success = await this.sendToN8N(email, this.pendingBlessing, this.pendingBlessingMeta || undefined);
+      
+      if (!success) {
+        throw new Error('Webhook failed');
+      }
+      
+      // Store email
+      this.collectedEmail = email;
+      this.blessingDelivered = true;
+      setSessionFlag(SESSION_KEY, 'true');
+      
+      // Display full blessing
+      this.displayBlessing(this.pendingBlessing, this.pendingBlessingMeta || undefined);
+      
+      // Show success message
+      this.pushAssistantMessage('Perfect! Your blessing has been sent to ' + email);
+      
+      // Redirect to thank you page
+      const userName = this.pendingBlessingMeta?.userName || null;
+      const sidthieKey = this.pendingBlessingMeta?.sidthieKey || null;
+      this.redirectToThankYou(userName || undefined, sidthieKey || undefined);
+      
+    } catch (error) {
+      console.error('Email submission error:', error);
+      
+      // Show error and retry option
+      const errorBubble = document.createElement('div');
+      errorBubble.className = 'bless-chat-bubble bless-chat-error-bubble';
+      errorBubble.textContent = "We couldn't save your blessing right now. ";
+      
+      const retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.className = 'bless-chat-retry';
+      retryBtn.textContent = 'Try again';
+      retryBtn.addEventListener('click', () => {
+        errorBubble.remove();
+        this.createEmailInputBubble();
+      });
+      
+      errorBubble.appendChild(retryBtn);
+      this.messageList.appendChild(errorBubble);
+      this.scrollToBottom();
+    }
+  }
+
+  private async sendToN8N(email: string, blessing: string, meta?: StreamMeta): Promise<boolean> {
+    const payload = {
+      email,
+      userName: meta?.userName || null,
+      blessedPersonName: meta?.userName || null,
+      chosenSidthie: meta?.sidthieKey || null,
+      sidthieLabel: meta?.sidthieLabel || null,
+      blessingText: blessing,
+      explanation: this.lastExplanation || null,
+      timestamp: new Date().toISOString()
+    };
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      
+      const response = await fetch(this.N8N_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error('N8N webhook failed:', response.status, response.statusText);
+        return false;
+      }
+      
+      return true;
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.error('N8N webhook timeout');
+      } else {
+        console.error('N8N webhook error:', error);
+      }
+      return false;
+    }
+  }
+
+  private redirectToThankYou(userName?: string, sidthieKey?: string) {
+    // Store blessing in sessionStorage
+    if (this.pendingBlessing) {
+      try {
+        sessionStorage.setItem('bless-blessing-text', this.pendingBlessing);
+        if (sidthieKey) {
+          sessionStorage.setItem('bless-sidthie-key', sidthieKey);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    }
+    
+    // Build URL
+    const params = new URLSearchParams();
+    if (userName) params.append('name', userName);
+    if (sidthieKey) params.append('sidthie', sidthieKey);
+    
+    const url = `${this.THANK_YOU_PAGE}${params.toString() ? '?' + params.toString() : ''}`;
+    
+    // Redirect after short delay
+    setTimeout(() => {
+      window.location.href = url;
+    }, 2000);
   }
 
   private prepareBlessing(raw: string) {
