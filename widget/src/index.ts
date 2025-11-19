@@ -1497,6 +1497,7 @@ class BlessChatWidget {
       sidthie: meta?.key || null,
       sidthieLabel: meta?.label || null,
       explanation,
+      emailCollected: true,
     };
 
     this.renderBlessingPanel({ blessing, explanation, sidthieLabel: detail.sidthieLabel ?? undefined });
