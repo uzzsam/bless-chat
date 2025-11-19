@@ -468,6 +468,38 @@ const STYLE_BLOCK = `
   border-color: rgba(255, 129, 100, 0.3);
 }
 
+/* Continue journey button */
+.bless-chat-continue-bubble {
+  padding: 1.2rem !important;
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0;
+}
+
+.bless-chat-continue-button {
+  padding: 0.875rem 2.5rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(var(--bless-gold-400), 0.95);
+  color: rgb(var(--bless-green-900));
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 200ms ease;
+  box-shadow: 0 4px 12px rgba(var(--bless-gold-400), 0.3);
+}
+
+.bless-chat-continue-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(var(--bless-gold-400), 0.4);
+  background: rgba(var(--bless-gold-400), 1);
+}
+
+.bless-chat-continue-button:active {
+  transform: translateY(0);
+}
+
 @media (max-width: 640px) {
   .bless-chat-email-wrapper {
     flex-direction: column;
@@ -1344,14 +1376,22 @@ class BlessChatWidget {
       
       // Display full blessing
       this.displayBlessing(this.pendingBlessing, this.pendingBlessingMeta || undefined);
-      
+
       // Show success message
       this.pushAssistantMessage('Perfect! Your blessing has been sent to ' + email);
-      
-      // Redirect to thank you page
-      const userName = this.pendingBlessingMeta?.userName || null;
-      const sidthieKey = this.pendingBlessingMeta?.sidthieKey || null;
-      this.redirectToThankYou(userName || undefined, sidthieKey || undefined);
+
+      // Scroll to blessing reveal section
+      setTimeout(() => {
+        const blessingPanel = document.querySelector('[data-bless-panel], .bless-blessing__panel, #bless-blessing__panel');
+        if (blessingPanel) {
+          blessingPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 500);
+
+      // Show CTA button to continue journey
+      setTimeout(() => {
+        this.showContinueButton(email);
+      }, 2000);
       
     } catch (error) {
       console.error('Email submission error:', error);
@@ -1419,6 +1459,40 @@ class BlessChatWidget {
     }
   }
 
+  private showContinueButton(email: string) {
+    const userName = this.pendingBlessingMeta?.userName || null;
+    const sidthieKey = this.pendingBlessingMeta?.sidthieKey || null;
+
+    // Create button bubble
+    const buttonBubble = document.createElement('div');
+    buttonBubble.className = 'bless-chat-bubble bless-chat-continue-bubble';
+
+    const ctaButton = document.createElement('button');
+    ctaButton.type = 'button';
+    ctaButton.className = 'bless-chat-continue-button';
+    ctaButton.textContent = 'Continue your journey';
+
+    let redirectTimeout: NodeJS.Timeout | null = null;
+    let timeLeft = 30;
+
+    const performRedirect = () => {
+      if (redirectTimeout) clearTimeout(redirectTimeout);
+      this.redirectToThankYou(userName || undefined, sidthieKey || undefined);
+    };
+
+    // Click handler
+    ctaButton.addEventListener('click', performRedirect);
+
+    buttonBubble.appendChild(ctaButton);
+    this.messageList.appendChild(buttonBubble);
+    this.scrollToBottom();
+
+    // Auto-redirect after 30 seconds
+    redirectTimeout = setTimeout(() => {
+      performRedirect();
+    }, 30000);
+  }
+
   private redirectToThankYou(userName?: string, sidthieKey?: string) {
     // Store blessing in sessionStorage
     if (this.pendingBlessing) {
@@ -1431,18 +1505,16 @@ class BlessChatWidget {
         // Ignore storage errors
       }
     }
-    
+
     // Build URL
     const params = new URLSearchParams();
     if (userName) params.append('name', userName);
     if (sidthieKey) params.append('sidthie', sidthieKey);
-    
+
     const url = `${this.THANK_YOU_PAGE}${params.toString() ? '?' + params.toString() : ''}`;
-    
-    // Redirect after short delay
-    setTimeout(() => {
-      window.location.href = url;
-    }, 2000);
+
+    // Redirect immediately
+    window.location.href = url;
   }
 
   private prepareBlessing(raw: string) {
