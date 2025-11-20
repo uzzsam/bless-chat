@@ -280,6 +280,11 @@ function shouldUseVectorSearch(state: string): boolean {
 
 // Build controller message with pre-selected variations
 function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
+  const variables = {
+    NAME: currentState.userName,
+    BLESSED_NAME: currentState.blessingFor,
+  };
+
   const greetingText = currentState.state === 'ask_name' 
     ? getRandomVariation(GREETING_VARIATIONS) 
     : undefined;
@@ -289,17 +294,17 @@ function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
     : undefined;
     
   const whoQuestionText = currentState.state === 'ask_who' && currentState.userName
-    ? injectVariables(getRandomVariation(WHO_QUESTION_VARIATIONS), { NAME: currentState.userName })
+    ? injectVariables(getRandomVariation(WHO_QUESTION_VARIATIONS), { NAME: variables.NAME || 'Friend' })
     : undefined;
     
   const selectionText = currentState.state === 'ask_intent' && currentState.userName
-    ? injectVariables(getRandomVariation(SIDTHIE_SELECTION_VARIATIONS), { NAME: currentState.userName })
+    ? injectVariables(getRandomVariation(SIDTHIE_SELECTION_VARIATIONS), { NAME: variables.NAME || 'Friend' })
     : undefined;
     
   const contextQuestionText = currentState.state === 'ask_context' && currentState.sidthieLabel
     ? injectVariables(getRandomVariation(CONTEXT_QUESTION_VARIATIONS), {
-        NAME: currentState.userName || 'Friend',
-        BLESSED_NAME: currentState.blessingFor || currentState.userName || 'yourself',
+        NAME: variables.NAME || 'Friend',
+        BLESSED_NAME: variables.BLESSED_NAME || 'yourself',
         SIDTHIE: currentState.sidthieLabel,
         SIDTHIE_ENGLISH: findSidthieEnglish(currentState.sidthieLabel) || currentState.sidthieLabel
       })
