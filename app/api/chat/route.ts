@@ -4,12 +4,13 @@
 */
 import { createOpenAIClient, resolveModel, resolveVectorStoreId } from '@/lib/openai';
 import { buildSystemMessage, BASE_PERSONA_PROMPT } from '@/lib/prompts';
-import { 
+import {
   SIDTHIES,
-  SIDTHIE_KEYS, 
+  SIDTHIE_KEYS,
   SIDTHIE_LABELS,
-  getRandomVariation, 
+  getRandomVariation,
   injectVariables,
+  findSidthieByLabel,
   GREETING_VARIATIONS,
   NAME_REQUEST_VARIATIONS,
   WHO_QUESTION_VARIATIONS,
@@ -74,6 +75,12 @@ function normalizeOrigin(value: string) {
 
 function stripProtocol(value: string) {
   return value.replace(/^https?:\/\//i, '');
+}
+
+// Helper to get English label from Sidthie label
+function findSidthieEnglish(label: string): string | null {
+  const sidthie = SIDTHIES.find(s => s.label === label || s.key === label.toUpperCase());
+  return sidthie ? sidthie.label : null;
 }
 
 function matchesAllowed(origin: string, allowed: string) {
@@ -288,8 +295,11 @@ function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
     : undefined;
     
   const contextQuestionText = currentState.state === 'ask_context' && currentState.sidthieLabel
-    ? injectVariables(getRandomVariation(CONTEXT_QUESTION_VARIATIONS), { 
-        SIDTHIE: currentState.sidthieLabel 
+    ? injectVariables(getRandomVariation(CONTEXT_QUESTION_VARIATIONS), {
+        NAME: currentState.userName || 'Friend',
+        BLESSED_NAME: currentState.blessingFor || currentState.userName || 'yourself',
+        SIDTHIE: currentState.sidthieLabel,
+        SIDTHIE_ENGLISH: findSidthieEnglish(currentState.sidthieLabel) || currentState.sidthieLabel
       })
     : undefined;
 

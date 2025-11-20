@@ -108,22 +108,18 @@ export const WHO_QUESTION_VARIATIONS = [
   "{{NAME}}, who will receive this gift of wisdom? Yourself, or another soul?",
 ];
 
-// Sidthie selection prompt variations (with name injected)
+// Sidthie selection prompt variations (simple, hardcoded question)
 export const SIDTHIE_SELECTION_VARIATIONS = [
-  "{{NAME}}, as you breathe, notice what feels most present today. Gently choose the Sidthie whose intent your heart is ready to receive.",
-  "{{NAME}}, welcome to this quiet circle. Let your heart drift toward the Sidthie whose intention your soul is ready to meet.",
-  "{{NAME}}, which blessing calls to you? Let intuition guide your choice.",
-  "Take a breath, {{NAME}}. Which of these Sidthies speaks to where you stand today?",
-  "{{NAME}}, feel into this moment. Which blessing does your heart recognize?",
+  "{{NAME}}, which Sidthie calls to you today?",
 ];
 
 // Context question variations (after Sidthie selected)
+// Variables: {{NAME}} (user), {{BLESSED_NAME}} (who blessing is for), {{SIDTHIE}} (Sidthie name), {{SIDTHIE_ENGLISH}} (English label)
 export const CONTEXT_QUESTION_VARIATIONS = [
-  "How does {{SIDTHIE}} relate to your moment? What feels most present?",
-  "When you think of {{SIDTHIE}}, what thread shall I strengthen in your blessing?",
-  "Tell me what {{SIDTHIE}} means to you right now. What feels alive in this intention?",
-  "{{SIDTHIE}} speaks to you today. What would you like woven into this blessing?",
-  "As {{SIDTHIE}} settles around you, what do you wish to include?",
+  "{{NAME}}, I'm weaving {{SIDTHIE}} into a blessing for {{BLESSED_NAME}}. Tell me more about what inspired your choice of {{SIDTHIE_ENGLISH}}?",
+  "{{NAME}}, {{SIDTHIE}} will be woven through {{BLESSED_NAME}}'s blessing. What about {{SIDTHIE_ENGLISH}} speaks to you most right now?",
+  "I see you've chosen {{SIDTHIE}}—the essence of {{SIDTHIE_ENGLISH}}—for {{BLESSED_NAME}}'s blessing. What does this mean to you in this moment?",
+  "{{NAME}}, as I hold {{SIDTHIE}} and {{BLESSED_NAME}} in mind, tell me: what about {{SIDTHIE_ENGLISH}} feels important for this blessing?",
 ];
 
 // Helper to get random variation

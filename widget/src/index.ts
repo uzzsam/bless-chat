@@ -1256,11 +1256,9 @@ class BlessChatWidget {
     this.awaitingEmail = true;
     this.inputEl.disabled = true;
     this.sendBtn.disabled = true;
-    
-    setTimeout(() => {
-      this.pushAssistantMessage("What's your email so I can send you the complete blessing?");
-      this.createEmailInputBubble();
-    }, 800);
+
+    this.pushAssistantMessage("What's your email so I can send you the complete blessing?");
+    this.createEmailInputBubble();
   }
 
   private createEmailInputBubble() {
