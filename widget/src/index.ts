@@ -684,6 +684,7 @@ class BlessChatWidget {
   private pendingBlessingMeta: StreamMeta | null = null;
   private collectedEmail: string | null = null;
   private awaitingEmail = false;
+  private currentMetaState: string | null = null;
   private readonly N8N_WEBHOOK_URL = 'https://n8n.theexperiencen8n.top/webhook/951bd832-961c-4f19-a263-96632039cd07';
   private readonly THANK_YOU_PAGE = '/pages/blessing-thank-you';
   
@@ -885,6 +886,10 @@ class BlessChatWidget {
 
   private captureExplanation(text?: string) {
     if (!text) return;
+    // Only capture explanatory context during intent/context phases to avoid overwriting with email prompts
+    if (this.currentMetaState && !['ask_intent', 'ask_context'].includes(this.currentMetaState)) {
+      return;
+    }
     const lines = text.split('\n\n');
     if (lines.length > 0) {
       const firstParagraph = lines[0].trim();
@@ -1160,6 +1165,9 @@ class BlessChatWidget {
           if (typeof payload.done === 'boolean') {
             doneFlag = payload.done;
           }
+          if (payload.state) {
+            this.currentMetaState = payload.state;
+          }
           if (payload.marker) {
             finalMeta = finalMeta ?? {};
             if (!finalMeta.marker) {
@@ -1181,6 +1189,7 @@ class BlessChatWidget {
             if (payload.sidthieLabel && !finalMeta.sidthieLabel) finalMeta.sidthieLabel = payload.sidthieLabel;
             if (payload.userName && !finalMeta.userName) finalMeta.userName = payload.userName;
             if (payload.blessingFor && !finalMeta.blessingFor) finalMeta.blessingFor = payload.blessingFor;
+            if (payload.state && !finalMeta.state) finalMeta.state = payload.state;
           }
         } else if (payload.type === 'error') {
           throw new Error(payload.message || 'Unexpected error');
@@ -1205,7 +1214,14 @@ class BlessChatWidget {
   ) {
     if (!text) return;
 
-    if (done) {
+    const metaState = finalMeta?.state || this.currentMetaState;
+    const isComposeState = metaState === 'compose_blessing';
+
+    if (done && !isComposeState) {
+      return;
+    }
+
+    if (done && isComposeState) {
       this.incrementBlessingCount();
       
       const prepared = this.prepareBlessing(text);
@@ -1542,7 +1558,8 @@ class BlessChatWidget {
       if (meta) this.activeSidthie = meta;
     }
 
-    const explanation = this.lastExplanation || meta?.description || meta?.short || '';
+    const explanation =
+      meta?.description || meta?.short || this.lastExplanation || '';
 
     try {
       revealBlessing(blessing);
