@@ -1324,19 +1324,25 @@ class BlessChatWidget {
   }
 
   private async handleEmailSubmission(email: string) {
+    console.log('[BlessChatWidget] Email submission started', { email, timestamp: new Date().toISOString() });
+
     if (!this.pendingBlessing) {
+      console.warn('[BlessChatWidget] No pending blessing found');
       this.pushAssistantMessage('Something went wrong. Please refresh and try again.');
       return;
     }
-    
+
     try {
+      console.log('[BlessChatWidget] Sending to N8N webhook');
       // Send to N8N
       const success = await this.sendToN8N(email, this.pendingBlessing, this.pendingBlessingMeta || undefined);
-      
+
       if (!success) {
+        console.error('[BlessChatWidget] N8N webhook returned false');
         throw new Error('Webhook failed');
       }
-      
+
+      console.log('[BlessChatWidget] N8N webhook success, storing email and displaying blessing');
       // Store email
       this.collectedEmail = email;
       this.blessingDelivered = true;
@@ -1345,25 +1351,32 @@ class BlessChatWidget {
       // Display full blessing
       // This will trigger blessing:update event which the Shopify blessing section listens to
       // The Shopify section will handle showing success message, CTA button, and redirect
+      console.log('[BlessChatWidget] About to dispatch blessing:update and blessing:ready events');
       this.displayBlessing(this.pendingBlessing, this.pendingBlessingMeta || undefined);
-      
+      console.log('[BlessChatWidget] Email submission complete - events dispatched');
+
     } catch (error) {
-      console.error('Email submission error:', error);
-      
+      console.error('[BlessChatWidget] Email submission error:', error);
+      console.error('[BlessChatWidget] Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : 'No stack trace'
+      });
+
       // Show error and retry option
       const errorBubble = document.createElement('div');
       errorBubble.className = 'bless-chat-bubble bless-chat-error-bubble';
       errorBubble.textContent = "We couldn't save your blessing right now. ";
-      
+
       const retryBtn = document.createElement('button');
       retryBtn.type = 'button';
       retryBtn.className = 'bless-chat-retry';
       retryBtn.textContent = 'Try again';
       retryBtn.addEventListener('click', () => {
+        console.log('[BlessChatWidget] User clicked retry');
         errorBubble.remove();
         this.createEmailInputBubble();
       });
-      
+
       errorBubble.appendChild(retryBtn);
       this.messageList.appendChild(errorBubble);
       this.scrollToBottom();
@@ -1381,11 +1394,26 @@ class BlessChatWidget {
       explanation: this.lastExplanation || null,
       timestamp: new Date().toISOString()
     };
-    
+
+    console.log('[N8N Webhook] Starting POST request');
+    console.log('[N8N Webhook] URL:', this.N8N_WEBHOOK_URL);
+    console.log('[N8N Webhook] Payload:', {
+      email: payload.email,
+      userName: payload.userName,
+      blessedPersonName: payload.blessedPersonName,
+      chosenSidthie: payload.chosenSidthie,
+      sidthieLabel: payload.sidthieLabel,
+      explanationLength: payload.explanation ? payload.explanation.length : 0,
+      blessingTextLength: payload.blessingText ? payload.blessingText.length : 0,
+      timestamp: payload.timestamp
+    });
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-      
+      const startTime = performance.now();
+
+      console.log('[N8N Webhook] Sending request...');
       const response = await fetch(this.N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: {
@@ -1394,20 +1422,48 @@ class BlessChatWidget {
         body: JSON.stringify(payload),
         signal: controller.signal
       });
-      
+
       clearTimeout(timeoutId);
-      
+      const endTime = performance.now();
+      const duration = (endTime - startTime).toFixed(0);
+
+      console.log('[N8N Webhook] Response received', {
+        status: response.status,
+        statusText: response.statusText,
+        duration: `${duration}ms`,
+        contentType: response.headers.get('Content-Type')
+      });
+
       if (!response.ok) {
-        console.error('N8N webhook failed:', response.status, response.statusText);
+        console.error('[N8N Webhook] FAILED - HTTP error', {
+          status: response.status,
+          statusText: response.statusText,
+          duration: `${duration}ms`
+        });
+        try {
+          const errorBody = await response.text();
+          console.error('[N8N Webhook] Error response body:', errorBody);
+        } catch {
+          console.warn('[N8N Webhook] Could not read error response body');
+        }
         return false;
       }
-      
+
+      console.log('[N8N Webhook] SUCCESS - Email saved to N8N', {
+        email: payload.email,
+        duration: `${duration}ms`
+      });
       return true;
+
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.error('N8N webhook timeout');
+        console.error('[N8N Webhook] TIMEOUT - Request took longer than 30 seconds');
       } else {
-        console.error('N8N webhook error:', error);
+        console.error('[N8N Webhook] ERROR - Network or parsing error:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        });
       }
       return false;
     }
@@ -1462,9 +1518,11 @@ class BlessChatWidget {
   }
 
   private displayBlessing(
-    blessing: string, 
+    blessing: string,
     finalMeta?: StreamMeta
   ) {
+    console.log('[BlessingDisplay] Starting blessing display');
+
     let meta = this.activeSidthie;
     if (!meta && finalMeta?.sidthieKey) {
       meta = findSidthieByKey(finalMeta.sidthieKey);
@@ -1494,10 +1552,20 @@ class BlessChatWidget {
       userName: this.pendingBlessingMeta?.userName || null,
     };
 
+    console.log('[BlessingDisplay] Blessing event detail:', {
+      emailCollected: detail.emailCollected,
+      email: detail.email,
+      userName: detail.userName,
+      sidthie: detail.sidthie,
+      sidthieLabel: detail.sidthieLabel,
+      blessingLength: detail.blessing.length
+    });
+
     this.renderBlessingPanel({ blessing, explanation, sidthieLabel: detail.sidthieLabel ?? undefined });
-    
+
     if (meta) {
       try {
+        console.log('[BlessingDisplay] Dispatching sidthie:selected event');
         window.dispatchEvent(
           new CustomEvent('sidthie:selected', {
             detail: { sidthie: meta.key, sidthieLabel: meta.label },
@@ -1507,17 +1575,24 @@ class BlessChatWidget {
         /* ignore dispatch errors */
       }
     }
-    
+
+    console.log('[BlessingDisplay] Dispatching blessing:ready event');
     window.dispatchEvent(new CustomEvent('blessing:ready', { detail }));
+
+    console.log('[BlessingDisplay] Dispatching blessing:update event (this triggers Shopify section)');
     window.dispatchEvent(new CustomEvent('blessing:update', { detail }));
-    
+
     // Auto-scroll to reveal blessing panel
     setTimeout(() => {
+      console.log('[BlessingDisplay] Scrolling to blessing panel');
       this.scrollToBottom();
       // Also try to scroll the main page to the blessing section
       const blessingPanel = document.querySelector('[data-bless-panel], .bless-blessing__panel, #bless-blessing__panel');
       if (blessingPanel) {
+        console.log('[BlessingDisplay] Found blessing panel, scrolling into view');
         blessingPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        console.warn('[BlessingDisplay] Blessing panel not found in DOM');
       }
     }, 300);
   }
