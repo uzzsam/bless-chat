@@ -110,7 +110,7 @@ export const WHO_QUESTION_VARIATIONS = [
 
 // Sidthie selection prompt variations (simple, hardcoded question)
 export const SIDTHIE_SELECTION_VARIATIONS = [
-  "{{NAME}}, which Sidthie calls to you today?",
+  "{{NAME}}, for {{BLESSED_NAME}}, which Sidthie calls to you today?",
 ];
 
 // Context question variations (after Sidthie selected)

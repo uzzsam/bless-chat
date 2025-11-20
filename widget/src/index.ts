@@ -23,6 +23,7 @@ interface StreamMeta {
   sidthieKey?: string | null;
   sidthieLabel?: string | null;
   userName?: string | null;
+  blessingFor?: string | null;
   marker?: string | null;
   done?: boolean;
   messageCount?: number;
@@ -1171,9 +1172,15 @@ class BlessChatWidget {
               sidthieKey: payload.sidthieKey ?? null,
               sidthieLabel: payload.sidthieLabel ?? null,
               userName: payload.userName ?? null,
+              blessingFor: payload.blessingFor ?? null,
               marker: payload.marker ?? null,
               done: payload.done,
             };
+          } else {
+            if (payload.sidthieKey && !finalMeta.sidthieKey) finalMeta.sidthieKey = payload.sidthieKey;
+            if (payload.sidthieLabel && !finalMeta.sidthieLabel) finalMeta.sidthieLabel = payload.sidthieLabel;
+            if (payload.userName && !finalMeta.userName) finalMeta.userName = payload.userName;
+            if (payload.blessingFor && !finalMeta.blessingFor) finalMeta.blessingFor = payload.blessingFor;
           }
         } else if (payload.type === 'error') {
           throw new Error(payload.message || 'Unexpected error');
@@ -1389,7 +1396,7 @@ class BlessChatWidget {
     const payload = {
       email,
       userName: meta?.userName || null,
-      blessedPersonName: meta?.userName || null,
+      blessedPersonName: meta?.blessingFor || null,
       chosenSidthie: meta?.sidthieKey || null,
       sidthieLabel: meta?.sidthieLabel || null,
       blessingText: blessing,
@@ -1549,9 +1556,11 @@ class BlessChatWidget {
       sidthie: meta?.key || null,
       sidthieLabel: meta?.label || null,
       explanation,
-      emailCollected: true,
+      emailCollected: Boolean(this.collectedEmail),
       email: this.collectedEmail || null,
       userName: this.pendingBlessingMeta?.userName || null,
+      blessingFor: this.pendingBlessingMeta?.blessingFor || null,
+      blessedPersonName: this.pendingBlessingMeta?.blessingFor || null,
     };
 
     console.log('[BlessingDisplay] Blessing event detail:', {

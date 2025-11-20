@@ -298,7 +298,10 @@ function buildControllerMessage(currentState: SessionState, messages: Msg[]) {
     : undefined;
     
   const selectionText = currentState.state === 'ask_intent' && currentState.userName
-    ? injectVariables(getRandomVariation(SIDTHIE_SELECTION_VARIATIONS), { NAME: variables.NAME || 'Friend' })
+    ? injectVariables(getRandomVariation(SIDTHIE_SELECTION_VARIATIONS), {
+        NAME: variables.NAME || 'Friend',
+        BLESSED_NAME: variables.BLESSED_NAME || variables.NAME || 'you',
+      })
     : undefined;
     
   const contextQuestionText = currentState.state === 'ask_context' && currentState.sidthieLabel
