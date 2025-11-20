@@ -205,11 +205,13 @@ function determineNextState(
     case 'ask_who':
       // User said who blessing is for, move to intent selection
       if (userCount > currentState.messageCount) {
-        const blessingFor = lastUserMessage(messages);
+        const rawWho = (lastUserMessage(messages) || '').trim();
+        const isSelf = rawWho.toLowerCase() === 'me' || rawWho.toLowerCase() === 'myself';
+        const blessingFor = isSelf ? (currentState.userName || undefined) : (rawWho || undefined);
         return {
           state: 'ask_intent',
           userName: currentState.userName,
-          blessingFor: blessingFor || undefined,
+          blessingFor,
           messageCount: userCount,
           lastUpdated: Date.now(),
         };
