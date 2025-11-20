@@ -1309,7 +1309,7 @@ class BlessChatWidget {
       submitBtn.disabled = true;
       submitBtn.textContent = 'Saving...';
       
-      await this.handleEmailSubmission(email);
+      await this.handleEmailSubmission(email, submitBtn);
     });
     
     this.messageList.appendChild(bubble);
@@ -1321,19 +1321,20 @@ class BlessChatWidget {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 
-  private async handleEmailSubmission(email: string) {
+  private async handleEmailSubmission(email: string, submitBtn?: HTMLButtonElement) {
     console.log('[BlessChatWidget] Email submission started', { email, timestamp: new Date().toISOString() });
 
-    if (!this.pendingBlessing) {
-      console.warn('[BlessChatWidget] No pending blessing found');
-      this.pushAssistantMessage('Something went wrong. Please refresh and try again.');
-      return;
-    }
+    const blessingToShow = this.pendingBlessing;
+    const blessingMeta = this.pendingBlessingMeta || undefined;
 
     try {
+      if (!blessingToShow) {
+        throw new Error('No pending blessing found');
+      }
+
       console.log('[BlessChatWidget] Sending to N8N webhook');
       // Send to N8N
-      const success = await this.sendToN8N(email, this.pendingBlessing, this.pendingBlessingMeta || undefined);
+      const success = await this.sendToN8N(email, blessingToShow, blessingMeta);
 
       if (!success) {
         console.error('[BlessChatWidget] N8N webhook returned false');
@@ -1345,13 +1346,6 @@ class BlessChatWidget {
       this.collectedEmail = email;
       this.blessingDelivered = true;
       setSessionFlag(SESSION_KEY, 'true');
-
-      // Display full blessing
-      // This will trigger blessing:update event which the Shopify blessing section listens to
-      // The Shopify section will handle showing success message, CTA button, and redirect
-      console.log('[BlessChatWidget] About to dispatch blessing:update and blessing:ready events');
-      this.displayBlessing(this.pendingBlessing, this.pendingBlessingMeta || undefined);
-      console.log('[BlessChatWidget] Email submission complete - events dispatched');
 
     } catch (error) {
       console.error('[BlessChatWidget] Email submission error:', error);
@@ -1378,6 +1372,16 @@ class BlessChatWidget {
       errorBubble.appendChild(retryBtn);
       this.messageList.appendChild(errorBubble);
       this.scrollToBottom();
+    } finally {
+      // Always clear loading state and reveal blessing/CTA even if webhook fails
+      this.awaitingEmail = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sent!';
+      }
+      if (blessingToShow) {
+        this.displayBlessing(blessingToShow, blessingMeta);
+      }
     }
   }
 
