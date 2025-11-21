@@ -1369,7 +1369,26 @@ class BlessChatWidget {
       this.collectedEmail = email;
       this.blessingDelivered = true;
       setSessionFlag(SESSION_KEY, 'true');
-
+      // Save blessing data for redirect
+      try {
+        if (blessingToShow) {
+          sessionStorage.setItem('blessed_text', blessingToShow);
+        }
+        if (blessingMeta?.sidthieKey) {
+          sessionStorage.setItem('blessed_sidthie_key', blessingMeta.sidthieKey);
+        }
+        if (blessingMeta?.sidthieLabel) {
+          sessionStorage.setItem('blessed_sidthie_label', blessingMeta.sidthieLabel);
+        }
+      } catch (err) {
+        console.warn('[BlessChatWidget] Unable to persist blessing data before redirect', err);
+      }
+      // Redirect immediately to thank-you page
+      const params = new URLSearchParams();
+      if (blessingMeta?.userName) params.append('name', blessingMeta.userName);
+      if (blessingMeta?.sidthieKey) params.append('sidthie', blessingMeta.sidthieKey);
+      const url = `/pages/thank-you${params.toString() ? '?' + params.toString() : ''}`;
+      window.location.href = url;
     } catch (error) {
       console.error('[BlessChatWidget] Email submission error:', error);
       console.error('[BlessChatWidget] Error details:', {
@@ -1377,33 +1396,31 @@ class BlessChatWidget {
         stack: error instanceof Error ? error.stack : 'No stack trace'
       });
 
-      // Show error and retry option
-      const errorBubble = document.createElement('div');
-      errorBubble.className = 'bless-chat-bubble bless-chat-error-bubble';
-      errorBubble.textContent = "We couldn't save your blessing right now. ";
-
-      const retryBtn = document.createElement('button');
-      retryBtn.type = 'button';
-      retryBtn.className = 'bless-chat-retry';
-      retryBtn.textContent = 'Try again';
-      retryBtn.addEventListener('click', () => {
-        console.log('[BlessChatWidget] User clicked retry');
-        errorBubble.remove();
-        this.createEmailInputBubble();
-      });
-
-      errorBubble.appendChild(retryBtn);
-      this.messageList.appendChild(errorBubble);
-      this.scrollToBottom();
+      // Even on failure, save what we can and redirect to avoid blocking
+      try {
+        if (blessingToShow) {
+          sessionStorage.setItem('blessed_text', blessingToShow);
+        }
+        if (blessingMeta?.sidthieKey) {
+          sessionStorage.setItem('blessed_sidthie_key', blessingMeta.sidthieKey);
+        }
+        if (blessingMeta?.sidthieLabel) {
+          sessionStorage.setItem('blessed_sidthie_label', blessingMeta.sidthieLabel);
+        }
+      } catch (err) {
+        console.warn('[BlessChatWidget] Unable to persist blessing data after error', err);
+      }
+      const params = new URLSearchParams();
+      if (blessingMeta?.userName) params.append('name', blessingMeta.userName);
+      if (blessingMeta?.sidthieKey) params.append('sidthie', blessingMeta.sidthieKey);
+      const url = `/pages/thank-you${params.toString() ? '?' + params.toString() : ''}`;
+      window.location.href = url;
     } finally {
       // Always clear loading state and reveal blessing/CTA even if webhook fails
       this.awaitingEmail = false;
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Sent!';
-      }
-      if (blessingToShow) {
-        this.displayBlessing(blessingToShow, blessingMeta);
       }
     }
   }
